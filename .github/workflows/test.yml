@@ -1,6 +1,6 @@
 on: [push, pull_request]
 
-name: Rust Tests
+name: Tests
 
 jobs:
   test:
