@@ -5,18 +5,27 @@ fn main() {
 
     println!("This is a devicetree representation of a {}", fdt.root().model());
     println!("...which is compatible with at least: {}", fdt.root().compatible().first());
+    println!("...and has {} CPU(s)", fdt.cpus().count());
     println!(
         "...and has at least one memory location at: {:#X}\n",
         fdt.memory().regions().next().unwrap().starting_address as usize
     );
 
     let chosen = fdt.chosen();
-
     if let Some(bootargs) = chosen.bootargs() {
         println!("The bootargs are: {:?}", bootargs);
     }
 
     if let Some(stdout) = chosen.stdout() {
-        println!("It would write to: {}", stdout.name);
+        println!("It would write stdout to: {}", stdout.name);
+    }
+
+    let soc = fdt.find_node("/soc");
+    println!("Does it have a `/soc` node? {}", if soc.is_some() { "yes" } else { "no" });
+    if let Some(soc) = soc {
+        println!("...and it has the following children:");
+        for child in soc.children() {
+            println!("    {}", child.name);
+        }
     }
 }

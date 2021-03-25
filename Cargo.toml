@@ -8,7 +8,7 @@ repository = "https://github.com/repnop/fdt"
 
 license = "MPL-2.0"
 
-description = "A pure-Rust crate for parsing Flattened Devicetrees"
+description = "A pure-Rust `#![no_std]` crate for parsing Flattened Devicetrees"
 keywords = ["devicetree", "fdt", "dt"]
 categories = ["embedded", "no-std"]
 readme = "README.md"
