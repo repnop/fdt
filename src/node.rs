@@ -128,10 +128,22 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
     }
 
     /// `reg` property
+    ///
+    /// Important: this method assumes that the value(s) inside the `reg`
+    /// property represent CPU-addressable addresses that are able to fit within
+    /// the platform's pointer size (e.g. `#address-cells` and `#size-cells` are
+    /// less than or equal to 2 for a 64-bit platform). If this is not the case
+    /// or you're unsure of whether this applies to the node, it is recommended
+    /// to use the [`FdtNode::property`] method to extract the raw value slice
+    /// or use the provided [`FdtNode::raw_reg`] helper method to give you an
+    /// iterator over the address and size slices. One example of where this
+    /// would return `None` for a node is a `pci` child node which contains the
+    /// PCI address information in the `reg` property, of which the address has
+    /// an `#address-cells` value of 3.
     pub fn reg(self) -> Option<impl Iterator<Item = crate::MemoryRegion> + 'a> {
-        let sizes = self.cell_sizes();
+        let sizes = self.parent_cell_sizes();
         if sizes.address_cells > 2 || sizes.size_cells > 2 {
-            todo!("address-cells and size-cells > 2 u32s not supported yet");
+            return None;
         }
 
         let mut reg = None;
@@ -161,6 +173,24 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         reg
     }
 
+    /// Convenience method that provides an iterator over the raw bytes for the
+    /// address and size values inside of the `reg` property
+    pub fn raw_reg(self) -> Option<impl Iterator<Item = RawReg<'a>> + 'a> {
+        let sizes = self.parent_cell_sizes();
+
+        if let Some(prop) = self.property("reg") {
+            let mut stream = FdtData::new(prop.value);
+            return Some(core::iter::from_fn(move || {
+                Some(RawReg {
+                    address: stream.take(sizes.address_cells * 4)?,
+                    size: stream.take(sizes.size_cells * 4)?,
+                })
+            }));
+        }
+
+        None
+    }
+
     /// `compatible` property
     pub fn compatible(self) -> Option<Compatible<'a>> {
         let mut s = None;
@@ -173,44 +203,27 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         s
     }
 
-    /// Node cell sizes
+    /// Cell sizes for child nodes
     pub fn cell_sizes(self) -> CellSizes {
-        let mut address_cells = None;
-        let mut size_cells = None;
+        let mut cell_sizes = CellSizes::default();
 
         for property in self.properties() {
             match property.name {
                 "#address-cells" => {
-                    address_cells =
-                        BigEndianU32::from_bytes(property.value).map(|n| n.get() as usize)
+                    cell_sizes.address_cells = BigEndianU32::from_bytes(property.value)
+                        .expect("not enough bytes for #address-cells value")
+                        .get() as usize;
                 }
                 "#size-cells" => {
-                    size_cells = BigEndianU32::from_bytes(property.value).map(|n| n.get() as usize)
+                    cell_sizes.size_cells = BigEndianU32::from_bytes(property.value)
+                        .expect("not enough bytes for #size-cells value")
+                        .get() as usize;
                 }
                 _ => {}
             }
         }
 
-        if let Some(parent) = self.parent_props {
-            let parent =
-                FdtNode { name: "", props: parent, header: self.header, parent_props: None };
-            let parent_sizes = parent.cell_sizes();
-
-            if address_cells.is_none() {
-                address_cells = Some(parent_sizes.address_cells);
-            }
-
-            if size_cells.is_none() {
-                size_cells = Some(parent_sizes.size_cells);
-            }
-        }
-
-        // FIXME: this works around a bug(?) in the QEMU FDT
-        if address_cells == Some(0) {
-            address_cells = Some(2);
-        }
-
-        CellSizes { address_cells: address_cells.unwrap_or(2), size_cells: size_cells.unwrap_or(1) }
+        cell_sizes
     }
 
     /// Searches for the interrupt parent, if the node contains one
@@ -226,10 +239,6 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
 
         if let Some(prop) = self.properties().find(|p| p.name == "#interrupt-cells") {
             interrupt_cells = BigEndianU32::from_bytes(prop.value).map(|n| n.get() as usize)
-        }
-
-        if let (None, Some(parent)) = (interrupt_cells, self.interrupt_parent()) {
-            interrupt_cells = parent.interrupt_cells();
         }
 
         interrupt_cells
@@ -258,6 +267,18 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
 
         interrupt
     }
+
+    fn parent_cell_sizes(self) -> CellSizes {
+        let mut cell_sizes = CellSizes::default();
+
+        if let Some(parent) = self.parent_props {
+            let parent =
+                FdtNode { name: "", props: parent, header: self.header, parent_props: None };
+            cell_sizes = parent.cell_sizes();
+        }
+
+        cell_sizes
+    }
 }
 
 /// The number of cells (big endian u32s) that addresses and sizes take
@@ -273,6 +294,17 @@ impl Default for CellSizes {
     fn default() -> Self {
         CellSizes { address_cells: 2, size_cells: 1 }
     }
+}
+
+/// A raw `reg` property value set
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RawReg<'a> {
+    /// Big-endian encoded bytes making up the address portion of the property.
+    /// Length will always be a multiple of 4 bytes.
+    pub address: &'a [u8],
+    /// Big-endian encoded bytes making up the size portion of the property.
+    /// Length will always be a multiple of 4 bytes.
+    pub size: &'a [u8],
 }
 
 pub(crate) fn find_node<'b, 'a: 'b>(

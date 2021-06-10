@@ -94,4 +94,15 @@ impl<'a> FdtData<'a> {
             let _ = self.u32();
         }
     }
+
+    pub fn take(&mut self, bytes: usize) -> Option<&'a [u8]> {
+        if self.bytes.len() >= bytes {
+            let ret = &self.bytes[..bytes];
+            self.skip(bytes);
+
+            return Some(ret);
+        }
+
+        None
+    }
 }

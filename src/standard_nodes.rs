@@ -123,7 +123,14 @@ impl<'b, 'a: 'b> Cpu<'b, 'a> {
     pub fn ids(self) -> CpuIds<'a> {
         let address_cells = self.node.cell_sizes().address_cells;
 
-        CpuIds { reg: self.node.properties().find(|p| p.name == "reg").unwrap(), address_cells }
+        CpuIds {
+            reg: self
+                .node
+                .properties()
+                .find(|p| p.name == "reg")
+                .expect("reg is a required property of cpu nodes"),
+            address_cells,
+        }
     }
 
     /// `clock-frequency` property
@@ -137,7 +144,7 @@ impl<'b, 'a: 'b> Cpu<'b, 'a> {
                 8 => BigEndianU64::from_bytes(p.value).unwrap().get() as usize,
                 _ => unreachable!(),
             })
-            .unwrap()
+            .expect("clock-frequency is a required property of cpu nodes")
     }
 
     /// `timebase-frequency` property
@@ -151,7 +158,7 @@ impl<'b, 'a: 'b> Cpu<'b, 'a> {
                 8 => BigEndianU64::from_bytes(p.value).unwrap().get() as usize,
                 _ => unreachable!(),
             })
-            .unwrap()
+            .expect("timebase-frequency is a required property of cpu nodes")
     }
 
     /// Returns an iterator over all of the properties for the CPU node

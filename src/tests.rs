@@ -4,7 +4,7 @@
 
 extern crate std;
 
-use crate::*;
+use crate::{node::RawReg, *};
 
 static TEST: &[u8] = include_bytes!("../test.dtb");
 
@@ -143,4 +143,19 @@ fn required_nodes() {
 fn doesnt_exist() {
     let fdt = Fdt::new(TEST).unwrap();
     assert!(fdt.find_node("/this/doesnt/exist").is_none());
+}
+
+#[test]
+fn raw_reg() {
+    let fdt = Fdt::new(TEST).unwrap();
+    let regions =
+        fdt.find_node("/soc/flash").unwrap().raw_reg().unwrap().collect::<std::vec::Vec<_>>();
+
+    assert_eq!(
+        regions,
+        &[
+            RawReg { address: &0x20000000u64.to_be_bytes(), size: &0x2000000u64.to_be_bytes() },
+            RawReg { address: &0x22000000u64.to_be_bytes(), size: &0x2000000u64.to_be_bytes() }
+        ]
+    );
 }
