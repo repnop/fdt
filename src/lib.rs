@@ -16,7 +16,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! static MY_FDT: &[u8] = include_bytes!("../test.dtb");
+//! static MY_FDT: &[u8] = include_bytes!("../dtb/test.dtb");
 //!
 //! fn main() {
 //!     let fdt = fdt::Fdt::new(MY_FDT).unwrap();
@@ -250,6 +250,10 @@ impl<'a> Fdt<'a> {
     /// match the path, use `find_all_nodes`. This will automatically attempt to
     /// resolve aliases if `path` is not found.
     ///
+    /// Node paths must begin with a leading `/` and are ASCII only. Passing in
+    /// an invalid node path or non-ASCII node name in the path will return
+    /// `None`, as they will not be found within the devicetree structure.
+    ///
     /// Note: if the address of a node name is left out, the search will find
     /// the first node that has a matching name, ignoring the address portion if
     /// it exists.
@@ -277,9 +281,32 @@ impl<'a> Fdt<'a> {
     }
 
     /// Returns an iterator over all of the available nodes with the given path.
+    /// This does **not** attempt to find any node with the same name as the
+    /// provided path, if you're looking to do that, [`Fdt::all_nodes`] will
+    /// allow you to iterate over each node's name and filter for the desired
+    /// node(s).
     ///
-    /// Note: if the address of a node name is left out, the search will find
-    /// all nodes that have a matching name, ignoring the address portion.
+    /// For example:
+    /// ```rust
+    /// static MY_FDT: &[u8] = include_bytes!("../dtb/test.dtb");
+    ///
+    /// let fdt = fdt::Fdt::new(MY_FDT).unwrap();
+    ///
+    /// for node in fdt.find_all_nodes("/soc/virtio_mmio") {
+    ///     println!("{}", node.name);
+    /// }
+    /// ```
+    /// prints:
+    /// ```notrust
+    /// virtio_mmio@10008000
+    /// virtio_mmio@10007000
+    /// virtio_mmio@10006000
+    /// virtio_mmio@10005000
+    /// virtio_mmio@10004000
+    /// virtio_mmio@10003000
+    /// virtio_mmio@10002000
+    /// virtio_mmio@10001000
+    /// ```
     pub fn find_all_nodes(&self, path: &'a str) -> impl Iterator<Item = node::FdtNode<'_, 'a>> {
         let mut done = false;
         let only_root = path == "/";
@@ -287,12 +314,12 @@ impl<'a> Fdt<'a> {
 
         let mut path_split = path.rsplitn(2, '/');
         let child_name = path_split.next().unwrap();
-        let parent_path = match path_split.next().unwrap() {
-            "" => "/",
-            s => s,
+        let parent = match path_split.next() {
+            Some("") => Some(self.root().node),
+            Some(s) => node::find_node(&mut FdtData::new(self.structs_block()), s, self, None),
+            None => None,
         };
-        let parent =
-            node::find_node(&mut FdtData::new(self.structs_block()), parent_path, self, None);
+
         let (parent, bad_parent) = match parent {
             Some(parent) => (parent, false),
             None => (self.find_node("/").unwrap(), true),
