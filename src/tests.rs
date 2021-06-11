@@ -6,7 +6,8 @@ extern crate std;
 
 use crate::{node::RawReg, *};
 
-static TEST: &[u8] = include_bytes!("../test.dtb");
+static TEST: &[u8] = include_bytes!("../dtb/test.dtb");
+static ISSUE_3: &[u8] = include_bytes!("../dtb/issue-3.dtb");
 
 #[test]
 fn returns_fdt() {
@@ -158,4 +159,30 @@ fn raw_reg() {
             RawReg { address: &0x22000000u64.to_be_bytes(), size: &0x2000000u64.to_be_bytes() }
         ]
     );
+}
+
+#[test]
+fn issue_3() {
+    let fdt = Fdt::new(ISSUE_3).unwrap();
+    fdt.find_all_nodes("uart").for_each(|n| std::println!("{:?}", n));
+}
+
+#[test]
+fn issue_4() {
+    let fdt = Fdt::new(ISSUE_3).unwrap();
+    fdt.all_nodes().for_each(|n| std::println!("{:?}", n));
+}
+
+#[test]
+fn cpus() {
+    let fdt = Fdt::new(TEST).unwrap();
+    for cpu in fdt.cpus() {
+        cpu.ids().all().for_each(|n| std::println!("{:?}", n));
+    }
+}
+
+#[test]
+fn invalid_node() {
+    let fdt = Fdt::new(TEST).unwrap();
+    assert!(fdt.find_node("this/is/an invalid node///////////").is_none());
 }
