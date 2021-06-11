@@ -268,7 +268,7 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         interrupt
     }
 
-    fn parent_cell_sizes(self) -> CellSizes {
+    pub(crate) fn parent_cell_sizes(self) -> CellSizes {
         let mut cell_sizes = CellSizes::default();
 
         if let Some(parent) = self.parent_props {
