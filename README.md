@@ -12,7 +12,7 @@ This crate is licensed under the Mozilla Public License 2.0 (see the LICENSE fil
 ## Example
 
 ```rust
-static MY_FDT: &[u8] = include_bytes!("../test.dtb");
+static MY_FDT: &[u8] = include_bytes!("../dtb/test.dtb");
 
 fn main() {
     let fdt = fdt::Fdt::new(MY_FDT).unwrap();
