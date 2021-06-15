@@ -186,3 +186,17 @@ fn invalid_node() {
     let fdt = Fdt::new(TEST).unwrap();
     assert!(fdt.find_node("this/is/an invalid node///////////").is_none());
 }
+
+#[test]
+fn memory_node() {
+    let fdt = Fdt::new(TEST).unwrap();
+    assert_eq!(fdt.memory().regions().count(), 1);
+}
+
+#[test]
+fn interrupt_cells() {
+    let fdt = Fdt::new(TEST).unwrap();
+    let uart = fdt.find_node("/soc/uart").unwrap();
+    std::println!("{:?}", uart.parent_interrupt_cells());
+    assert_eq!(uart.interrupts().unwrap().collect::<std::vec::Vec<_>>(), std::vec![0xA]);
+}

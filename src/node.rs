@@ -237,7 +237,7 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
     pub fn interrupt_cells(self) -> Option<usize> {
         let mut interrupt_cells = None;
 
-        if let Some(prop) = self.properties().find(|p| p.name == "#interrupt-cells") {
+        if let Some(prop) = self.property("#interrupt-cells") {
             interrupt_cells = BigEndianU32::from_bytes(prop.value).map(|n| n.get() as usize)
         }
 
@@ -246,7 +246,7 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
 
     /// `interrupts` property
     pub fn interrupts(self) -> Option<impl Iterator<Item = usize> + 'a> {
-        let sizes = self.interrupt_cells()?;
+        let sizes = self.parent_interrupt_cells()?;
 
         let mut interrupt = None;
         for prop in self.properties() {
@@ -278,6 +278,27 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         }
 
         cell_sizes
+    }
+
+    pub(crate) fn parent_interrupt_cells(self) -> Option<usize> {
+        let mut interrupt_cells = None;
+        let parent = self
+            .property("interrupt-parent")
+            .and_then(|p| self.header.find_phandle(BigEndianU32::from_bytes(p.value)?.get()))
+            .or_else(|| {
+                Some(FdtNode {
+                    name: "",
+                    props: self.parent_props?,
+                    header: self.header,
+                    parent_props: None,
+                })
+            });
+
+        if let Some(size) = parent.and_then(|parent| parent.interrupt_cells()) {
+            interrupt_cells = Some(size);
+        }
+
+        interrupt_cells
     }
 }
 

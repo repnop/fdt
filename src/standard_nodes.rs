@@ -138,7 +138,7 @@ impl<'b, 'a: 'b> Cpu<'b, 'a> {
         self.node
             .properties()
             .find(|p| p.name == "clock-frequency")
-            .or_else(|| self.parent.properties().find(|p| p.name == "clock-frequency"))
+            .or_else(|| self.parent.property("clock-frequency"))
             .map(|p| match p.value.len() {
                 4 => BigEndianU32::from_bytes(p.value).unwrap().get() as usize,
                 8 => BigEndianU64::from_bytes(p.value).unwrap().get() as usize,
@@ -152,7 +152,7 @@ impl<'b, 'a: 'b> Cpu<'b, 'a> {
         self.node
             .properties()
             .find(|p| p.name == "timebase-frequency")
-            .or_else(|| self.parent.properties().find(|p| p.name == "timebase-frequency"))
+            .or_else(|| self.parent.property("timebase-frequency"))
             .map(|p| match p.value.len() {
                 4 => BigEndianU32::from_bytes(p.value).unwrap().get() as usize,
                 8 => BigEndianU64::from_bytes(p.value).unwrap().get() as usize,
@@ -258,9 +258,7 @@ impl Memory<'_, '_> {
     pub fn initial_mapped_area(&self) -> Option<MappedArea> {
         let mut mapped_area = None;
 
-        if let Some(init_mapped_area) =
-            self.node.properties().find(|n| n.name == "initial_mapped_area")
-        {
+        if let Some(init_mapped_area) = self.node.property("initial_mapped_area") {
             let mut stream = FdtData::new(init_mapped_area.value);
             let effective_address = stream.u64().expect("effective address");
             let physical_address = stream.u64().expect("physical address");
