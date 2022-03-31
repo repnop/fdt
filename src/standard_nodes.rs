@@ -97,7 +97,7 @@ impl<'b, 'a: 'b> Aliases<'b, 'a> {
         self.node
             .properties()
             .find(|p| p.name == alias)
-            .and_then(|p| core::str::from_utf8(p.value).ok())
+            .and_then(|p| core::str::from_utf8(&p.value[..p.value.len() - 1]).ok())
     }
 
     /// Attempt to find the node specified by the given alias
@@ -107,7 +107,7 @@ impl<'b, 'a: 'b> Aliases<'b, 'a> {
 
     /// Returns an iterator over all of the available aliases
     pub fn all(self) -> impl Iterator<Item = (&'a str, &'a str)> + 'b {
-        self.node.properties().filter_map(|p| Some((p.name, core::str::from_utf8(p.value).ok()?)))
+        self.node.properties().filter_map(|p| Some((p.name, core::str::from_utf8(&p.value[..p.value.len() - 1]).ok()?)))
     }
 }
 
