@@ -8,6 +8,7 @@ use crate::{node::RawReg, *};
 
 static TEST: &[u8] = include_bytes!("../dtb/test.dtb");
 static ISSUE_3: &[u8] = include_bytes!("../dtb/issue-3.dtb");
+static SIFIVE: &[u8] = include_bytes!("../dtb/sifive.dtb");
 
 #[test]
 fn returns_fdt() {
@@ -185,6 +186,28 @@ fn cpus() {
 fn invalid_node() {
     let fdt = Fdt::new(TEST).unwrap();
     assert!(fdt.find_node("this/is/an invalid node///////////").is_none());
+}
+
+#[test]
+fn aliases() {
+    let fdt = Fdt::new(SIFIVE).unwrap();
+    let aliases = fdt.aliases().unwrap();
+    for (_, node_path) in aliases.all() {
+        assert!(fdt.find_node(node_path).is_some(), "path: {:?}", node_path);
+    }
+}
+
+#[test]
+fn node_property_str_value() {
+    let fdt = Fdt::new(TEST).unwrap();
+    let cpu0 = fdt.find_node("/cpus/cpu@0").unwrap();
+    assert_eq!(cpu0.property("riscv,isa").unwrap().as_str().unwrap(), "rv64imafdcsu");
+}
+
+#[test]
+fn model_value() {
+    let fdt = Fdt::new(TEST).unwrap();
+    assert_eq!(fdt.root().model(), "riscv-virtio,qemu");
 }
 
 #[test]

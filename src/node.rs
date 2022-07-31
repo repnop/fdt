@@ -493,7 +493,7 @@ impl<'a> NodeProperty<'a> {
 
     /// Attempt to parse the property value as a `&str`
     pub fn as_str(self) -> Option<&'a str> {
-        core::str::from_utf8(self.value).ok()
+        core::str::from_utf8(self.value).map(|s| s.trim_end_matches('\0')).ok()
     }
 
     fn parse(stream: &mut FdtData<'a>, header: &Fdt<'a>) -> Self {
