@@ -298,3 +298,14 @@ pub struct MemoryRegion {
     /// Size of the memory region
     pub size: Option<usize>,
 }
+
+/// Range mapping child bus addresses to parent bus addresses
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MemoryRange {
+    /// Starting address on child bus
+    pub child_bus_address: usize,
+    /// Starting address on parent bus
+    pub parent_bus_address: usize,
+    /// Size of range
+    pub size: usize,
+}

@@ -60,7 +60,7 @@ pub mod standard_nodes;
 
 use node::MemoryReservation;
 use parsing::{BigEndianU32, CStr, FdtData};
-use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRegion, Root};
+use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRegion, MemoryRange, Root};
 
 /// Possible errors when attempting to create an `Fdt`
 #[derive(Debug, Clone, Copy, PartialEq)]

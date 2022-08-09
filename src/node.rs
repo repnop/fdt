@@ -4,7 +4,7 @@
 
 use crate::{
     parsing::{BigEndianU32, BigEndianU64, CStr, FdtData},
-    standard_nodes::{Compatible, MemoryRegion},
+    standard_nodes::{Compatible, MemoryRegion, MemoryRange},
     Fdt,
 };
 
@@ -171,6 +171,44 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         }
 
         reg
+    }
+
+    pub fn ranges(self) -> Option<impl Iterator<Item = crate::MemoryRange> + 'a> {
+        let sizes = self.parent_cell_sizes();
+        if sizes.address_cells > 2 || sizes.size_cells > 2 {
+            return None;
+        }
+
+        let mut ranges = None;
+        for prop in self.properties() {
+            if prop.name == "ranges" {
+                let mut stream = FdtData::new(prop.value);
+                ranges = Some(core::iter::from_fn(move || {
+                    let child_bus_address = match sizes.address_cells {
+                        1 => stream.u32()?.get() as usize,
+                        2 => stream.u64()?.get() as usize,
+                        _ => return None,
+                    };
+
+                    let parent_bus_address = match sizes.address_cells {
+                        1 => stream.u32()?.get() as usize,
+                        2 => stream.u64()?.get() as usize,
+                        _ => return None,
+                    };
+
+                    let size = match sizes.size_cells {
+                        1 => stream.u32()?.get() as usize,
+                        2 => stream.u64()?.get() as usize,
+                        _ => return None,
+                    };
+
+                    Some(MemoryRange { child_bus_address, parent_bus_address, size })
+                }));
+                break;
+            }
+        }
+
+        ranges
     }
 
     /// Convenience method that provides an iterator over the raw bytes for the
