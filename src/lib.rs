@@ -58,6 +58,9 @@ pub mod node;
 mod parsing;
 pub mod standard_nodes;
 
+#[cfg(feature = "pretty-printing")]
+mod pretty_print;
+
 use node::MemoryReservation;
 use parsing::{BigEndianU32, CStr, FdtData};
 use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRegion, Root};
@@ -87,10 +90,26 @@ impl core::fmt::Display for FdtError {
 }
 
 /// A flattened devicetree located somewhere in memory
-#[derive(Debug, Clone, Copy)]
+///
+/// Note on `Debug` impl: by default the `Debug` impl of this struct will not
+/// print any useful information, if you would like a best-effort tree print
+/// which looks similar to `dtc`'s output, enable the `pretty-printing` feature
+#[derive(Clone, Copy)]
 pub struct Fdt<'a> {
     data: &'a [u8],
     header: FdtHeader,
+}
+
+impl core::fmt::Debug for Fdt<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        #[cfg(feature = "pretty-printing")]
+        pretty_print::print_node(f, self.root().node, 0)?;
+
+        #[cfg(not(feature = "pretty-printing"))]
+        f.debug_struct("Fdt").finish_non_exhaustive()?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -266,7 +285,7 @@ impl<'a> Fdt<'a> {
     /// one of the strings inside of `with`
     pub fn find_compatible(&self, with: &[&str]) -> Option<node::FdtNode<'_, 'a>> {
         self.all_nodes().find(|n| {
-            n.compatible().and_then(|compats| compats.all().find(|c| with.contains(&c))).is_some()
+            n.compatible().and_then(|compats| compats.all().find(|c| with.contains(c))).is_some()
         })
     }
 

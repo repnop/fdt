@@ -1,6 +1,6 @@
 [package]
 name = "fdt"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Wesley Norris <repnop@outlook.com>"]
 edition = "2018"
 
@@ -12,5 +12,8 @@ description = "A pure-Rust `#![no_std]` crate for parsing Flattened Devicetrees"
 keywords = ["devicetree", "fdt", "dt"]
 categories = ["embedded", "no-std"]
 readme = "README.md"
+
+[features]
+pretty-printing = []
 
 [dependencies]

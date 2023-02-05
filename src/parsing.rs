@@ -17,7 +17,7 @@ impl<'a> CStr<'a> {
     }
 
     pub fn as_str(&self) -> Option<&'a str> {
-        core::str::from_utf8(&self.0).ok()
+        core::str::from_utf8(self.0).ok()
     }
 }
 
