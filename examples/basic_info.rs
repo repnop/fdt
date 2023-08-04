@@ -17,7 +17,11 @@ fn main() {
     }
 
     if let Some(stdout) = chosen.stdout() {
-        println!("It would write stdout to: {}", stdout.name);
+        println!(
+            "It would write stdout to: {} with params: {:?}",
+            stdout.node().name,
+            stdout.params()
+        );
     }
 
     let soc = fdt.find_node("/soc");

@@ -8,7 +8,8 @@
 
 	chosen {
 		bootargs = [00];
-		stdout-path = "/soc/uart@10000000";
+		stdout-path = "/soc/uart@10000000:115200";
+		stdin-path = "/soc/uart@10000000";
 	};
 
 	memory@80000000 {

@@ -198,6 +198,22 @@ fn aliases() {
 }
 
 #[test]
+fn stdout() {
+    let fdt = Fdt::new(TEST).unwrap();
+    let stdout = fdt.chosen().stdout().unwrap();
+    assert!(stdout.node().name == "uart@10000000");
+    assert!(stdout.params() == Some("115200"));
+}
+
+#[test]
+fn stdin() {
+    let fdt = Fdt::new(TEST).unwrap();
+    let stdin = fdt.chosen().stdin().unwrap();
+    assert!(stdin.node().name == "uart@10000000");
+    assert!(stdin.params().is_none());
+}
+
+#[test]
 fn node_property_str_value() {
     let fdt = Fdt::new(TEST).unwrap();
     let cpu0 = fdt.find_node("/cpus/cpu@0").unwrap();
