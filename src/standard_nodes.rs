@@ -286,9 +286,9 @@ pub struct Memory<'b, 'a: 'b> {
     pub(crate) node: FdtNode<'b, 'a>,
 }
 
-impl Memory<'_, '_> {
+impl<'a> Memory<'_, 'a> {
     /// Returns an iterator over all of the available memory regions
-    pub fn regions(&self) -> impl Iterator<Item = MemoryRegion> + '_ {
+    pub fn regions(&self) -> impl Iterator<Item = MemoryRegion> + 'a {
         self.node.reg().unwrap()
     }
 
