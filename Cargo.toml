@@ -1,6 +1,6 @@
 [package]
 name = "fdt"
-version = "0.1.5"
+version = "0.2.0-alpha1"
 authors = ["Wesley Norris <repnop@outlook.com>"]
 edition = "2018"
 
