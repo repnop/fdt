@@ -25,25 +25,61 @@ impl<'b, 'a: 'b> Chosen<'b, 'a> {
 
     /// Searches for the node representing `stdout`, if the property exists,
     /// attempting to resolve aliases if the node name doesn't exist as-is
-    pub fn stdout(self) -> Option<FdtNode<'b, 'a>> {
+    pub fn stdout(self) -> Option<StdInOutPath<'b, 'a>> {
         self.node
             .properties()
             .find(|n| n.name == "stdout-path")
             .and_then(|n| core::str::from_utf8(&n.value[..n.value.len() - 1]).ok())
-            .and_then(|name| self.node.header.find_node(name))
+            .map(Self::split_stdinout_property)
+            .and_then(|(name, params)| {
+                self.node.header.find_node(name).map(|node| StdInOutPath::new(node, params))
+            })
     }
 
     /// Searches for the node representing `stdout`, if the property exists,
     /// attempting to resolve aliases if the node name doesn't exist as-is. If
     /// no `stdin` property exists, but `stdout` is present, it will return the
     /// node specified by the `stdout` property.
-    pub fn stdin(self) -> Option<FdtNode<'b, 'a>> {
+    pub fn stdin(self) -> Option<StdInOutPath<'b, 'a>> {
         self.node
             .properties()
             .find(|n| n.name == "stdin-path")
             .and_then(|n| core::str::from_utf8(&n.value[..n.value.len() - 1]).ok())
-            .and_then(|name| self.node.header.find_node(name))
+            .map(Self::split_stdinout_property)
+            .and_then(|(name, params)| {
+                self.node.header.find_node(name).map(|node| StdInOutPath::new(node, params))
+            })
             .or_else(|| self.stdout())
+    }
+
+    /// Splits a stdout-path or stdin-path property into its node path and optional parameters which are seperated by a colon ':'.
+    /// see https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node
+    /// example "/soc/uart@10000000" => ("/soc/uart@10000000", None)
+    /// example "/soc/uart@10000000:115200" => ("/soc/uart@10000000", Some("115200"))
+    /// example "/soc/uart@10000000:115200n8r" => ("/soc/uart@10000000", Some("115200n8r"))
+    fn split_stdinout_property(property: &str) -> (&str, Option<&str>) {
+        property
+            .split_once(':')
+            .map_or_else(|| (property, None), |(name, params)| (name, Some(params)))
+    }
+}
+
+pub struct StdInOutPath<'b, 'a> {
+    pub(crate) node: FdtNode<'b, 'a>,
+    pub(crate) params: Option<&'a str>,
+}
+
+impl<'b, 'a> StdInOutPath<'b, 'a> {
+    fn new(node: FdtNode<'b, 'a>, params: Option<&'a str>) -> Self {
+        Self { node, params }
+    }
+
+    pub fn node(&self) -> FdtNode<'b, 'a> {
+        self.node
+    }
+
+    pub fn params(&self) -> Option<&'a str> {
+        self.params
     }
 }
 
