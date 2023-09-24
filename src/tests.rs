@@ -54,6 +54,36 @@ fn correct_flash_regions() {
 }
 
 #[test]
+fn parses_populated_ranges() {
+    let fdt = Fdt::new(TEST).unwrap();
+    let ranges = fdt.find_node("/soc/pci").unwrap().ranges().unwrap().collect::<std::vec::Vec<_>>();
+
+    assert_eq!(
+        ranges,
+        &[
+            MemoryRange {
+                child_bus_address: 0x100_0000_0000_0000,
+                parent_bus_address: 0x0,
+                size: 0x300_0000_0000_0000
+            },
+            MemoryRange {
+                child_bus_address: 0x1_0000_0200_0000,
+                parent_bus_address: 0x4000_0000,
+                size: 0x4000_0000
+            }
+        ]
+    );
+}
+
+#[test]
+fn parses_empty_ranges() {
+    let fdt = Fdt::new(TEST).unwrap();
+    let ranges = fdt.find_node("/soc").unwrap().ranges().unwrap().collect::<std::vec::Vec<_>>();
+
+    assert_eq!(ranges, &[]);
+}
+
+#[test]
 fn finds_with_addr() {
     let fdt = Fdt::new(TEST).unwrap();
     assert_eq!(fdt.find_node("/soc/virtio_mmio@10004000").unwrap().name, "virtio_mmio@10004000");
