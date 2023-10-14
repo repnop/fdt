@@ -8,10 +8,15 @@ use crate::{
     Fdt,
 };
 
+pub struct KernelInfo {
+    address: u64,
+    size: u64,
+}
+
 /// Represents the `/chosen` node with specific helper methods
 #[derive(Debug, Clone, Copy)]
 pub struct Chosen<'b, 'a: 'b> {
-    pub(crate) node: FdtNode<'b, 'a>,
+    node: FdtNode<'b, 'a>,
 }
 
 impl<'b, 'a: 'b> Chosen<'b, 'a> {
@@ -21,6 +26,25 @@ impl<'b, 'a: 'b> Chosen<'b, 'a> {
             .properties()
             .find(|n| n.name == "bootargs")
             .and_then(|n| core::str::from_utf8(&n.value[..n.value.len() - 1]).ok())
+    }
+
+    /// Get kernel image location and size
+    pub fn kernel_info(self) -> Option<KernelInfo> {
+        let address = self.node
+            .properties()
+            .find(|n| n.name == "linux,kernel-start")
+            .and_then(|n| n.value)
+
+        if address.is_none() {
+            return None;
+        }
+
+        let size = self.node
+            .properties()
+            .find(|n| n.name == "linux,kernel-size")
+            .and_then(|n| n.value)
+
+        Some(KernelInfo(address, size))
     }
 
     /// Searches for the node representing `stdout`, if the property exists,
