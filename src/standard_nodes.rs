@@ -340,6 +340,8 @@ pub struct MemoryRegion {
 pub struct MemoryRange {
     /// Starting address on child bus
     pub child_bus_address: usize,
+    /// The high bits of the child bus' starting address, if present
+    pub child_bus_address_hi: Option<u32>,
     /// Starting address on parent bus
     pub parent_bus_address: usize,
     /// Size of range

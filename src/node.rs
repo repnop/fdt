@@ -4,7 +4,7 @@
 
 use crate::{
     parsing::{BigEndianU32, BigEndianU64, CStr, FdtData},
-    standard_nodes::{Compatible, MemoryRegion, MemoryRange},
+    standard_nodes::{Compatible, MemoryRange, MemoryRegion},
     Fdt,
 };
 
@@ -174,8 +174,10 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
     }
 
     pub fn ranges(self) -> Option<impl Iterator<Item = crate::MemoryRange> + 'a> {
-        let sizes = self.parent_cell_sizes();
-        if sizes.address_cells > 2 || sizes.size_cells > 2 {
+        let sizes = self.cell_sizes();
+        let parent_sizes = self.parent_cell_sizes();
+
+        if sizes.address_cells > 3 || sizes.size_cells > 2 || parent_sizes.size_cells > 2 {
             return None;
         }
 
@@ -184,13 +186,14 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
             if prop.name == "ranges" {
                 let mut stream = FdtData::new(prop.value);
                 ranges = Some(core::iter::from_fn(move || {
-                    let child_bus_address = match sizes.address_cells {
-                        1 => stream.u32()?.get() as usize,
-                        2 => stream.u64()?.get() as usize,
+                    let (child_bus_address_hi, child_bus_address) = match sizes.address_cells {
+                        1 => (None, stream.u32()?.get() as usize),
+                        2 => (None, stream.u64()?.get() as usize),
+                        3 => (Some(stream.u32()?.get()), stream.u64()?.get() as usize),
                         _ => return None,
                     };
 
-                    let parent_bus_address = match sizes.address_cells {
+                    let parent_bus_address = match parent_sizes.address_cells {
                         1 => stream.u32()?.get() as usize,
                         2 => stream.u64()?.get() as usize,
                         _ => return None,
@@ -202,7 +205,12 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                         _ => return None,
                     };
 
-                    Some(MemoryRange { child_bus_address, parent_bus_address, size })
+                    Some(MemoryRange {
+                        child_bus_address,
+                        child_bus_address_hi,
+                        parent_bus_address,
+                        size,
+                    })
                 }));
                 break;
             }
