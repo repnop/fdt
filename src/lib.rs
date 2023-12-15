@@ -63,7 +63,7 @@ mod pretty_print;
 
 use node::MemoryReservation;
 use parsing::{BigEndianU32, CStr, FdtData};
-use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRegion, MemoryRange, Root};
+use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
 
 /// Possible errors when attempting to create an `Fdt`
 #[derive(Debug, Clone, Copy, PartialEq)]
