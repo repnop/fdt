@@ -39,6 +39,14 @@ pub struct FdtNode<'b, 'a: 'b> {
     parent_props: Option<&'a [u8]>,
 }
 
+#[cfg(feature = "pretty-printing")]
+impl core::fmt::Display for FdtNode<'_, '_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        crate::pretty_print::print_node(f, *self, 0)?;
+        Ok(())
+    }
+}
+
 impl<'b, 'a: 'b> FdtNode<'b, 'a> {
     fn new(
         name: &'a str,
