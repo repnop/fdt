@@ -4,9 +4,10 @@
 
 use crate::{
     node::{CellSizes, FdtNode, NodeProperty},
-    parsing::{BigEndianU32, BigEndianU64, CStr, FdtData},
+    parsing::{BigEndianU32, BigEndianU64, FdtData},
     Fdt,
 };
+use core::ffi::CStr;
 
 /// Represents the `/chosen` node with specific helper methods
 #[derive(Debug, Clone, Copy)]
@@ -251,7 +252,7 @@ pub struct Compatible<'a> {
 impl<'a> Compatible<'a> {
     /// First compatible string
     pub fn first(self) -> &'a str {
-        CStr::new(self.data).expect("expected C str").as_str().unwrap()
+        CStr::from_bytes_until_nul(self.data).expect("expected C str").to_str().unwrap()
     }
 
     /// Returns an iterator over all available compatible strings

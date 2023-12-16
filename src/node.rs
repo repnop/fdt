@@ -3,10 +3,11 @@
 // obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::{
-    parsing::{BigEndianU32, BigEndianU64, CStr, FdtData},
+    parsing::{BigEndianU32, BigEndianU64, FdtData},
     standard_nodes::{Compatible, MemoryRange, MemoryRegion},
     Fdt,
 };
+use core::ffi::CStr;
 
 const FDT_BEGIN_NODE: u32 = 1;
 const FDT_END_NODE: u32 = 2;
@@ -104,7 +105,10 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 let origin = stream.remaining();
                 let ret = {
                     stream.skip(4);
-                    let unit_name = CStr::new(stream.remaining()).expect("unit name").as_str()?;
+                    let unit_name = CStr::from_bytes_until_nul(stream.remaining())
+                        .expect("unit name")
+                        .to_str()
+                        .ok()?;
                     let full_name_len = unit_name.len() + 1;
                     stream.skip(full_name_len);
 
@@ -384,7 +388,8 @@ pub(crate) fn find_node<'b, 'a: 'b>(
         _ => return None,
     }
 
-    let unit_name = CStr::new(stream.remaining()).expect("unit name C str").as_str()?;
+    let unit_name =
+        CStr::from_bytes_until_nul(stream.remaining()).expect("unit name C str").to_str().ok()?;
 
     let full_name_len = unit_name.len() + 1;
     skip_4_aligned(stream, full_name_len);
@@ -461,7 +466,10 @@ pub(crate) fn all_nodes<'b, 'a: 'b>(header: &'b Fdt<'a>) -> impl Iterator<Item =
             _ => return None,
         }
 
-        let unit_name = CStr::new(stream.remaining()).expect("unit name C str").as_str().unwrap();
+        let unit_name = CStr::from_bytes_until_nul(stream.remaining())
+            .expect("unit name C str")
+            .to_str()
+            .unwrap();
         let full_name_len = unit_name.len() + 1;
         skip_4_aligned(&mut stream, full_name_len);
 
@@ -493,7 +501,8 @@ pub(crate) fn all_nodes<'b, 'a: 'b>(header: &'b Fdt<'a>) -> impl Iterator<Item =
 pub(crate) fn skip_current_node<'a>(stream: &mut FdtData<'a>, header: &Fdt<'a>) {
     assert_eq!(stream.u32().unwrap().get(), FDT_BEGIN_NODE, "bad node");
 
-    let unit_name = CStr::new(stream.remaining()).expect("unit_name C str").as_str().unwrap();
+    let unit_name =
+        CStr::from_bytes_until_nul(stream.remaining()).expect("unit_name C str").to_str().unwrap();
     let full_name_len = unit_name.len() + 1;
     skip_4_aligned(stream, full_name_len);
 

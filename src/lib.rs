@@ -61,8 +61,9 @@ pub mod standard_nodes;
 #[cfg(feature = "pretty-printing")]
 mod pretty_print;
 
+use core::ffi::CStr;
 use node::MemoryReservation;
-use parsing::{BigEndianU32, CStr, FdtData};
+use parsing::{BigEndianU32, FdtData};
 use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
 
 /// Possible errors when attempting to create an `Fdt`
@@ -384,11 +385,11 @@ impl<'a> Fdt<'a> {
                 return None;
             }
 
-            let cstr = CStr::new(block)?;
+            let cstr = CStr::from_bytes_until_nul(block).ok()?;
 
-            block = &block[cstr.len() + 1..];
+            block = &block[cstr.to_bytes().len() + 1..];
 
-            cstr.as_str()
+            cstr.to_str().ok()
         })
     }
 
@@ -397,12 +398,13 @@ impl<'a> Fdt<'a> {
         self.header.totalsize.get() as usize
     }
 
-    fn cstr_at_offset(&self, offset: usize) -> CStr<'a> {
-        CStr::new(&self.strings_block()[offset..]).expect("no null terminating string on C str?")
+    fn cstr_at_offset(&self, offset: usize) -> &'a CStr {
+        CStr::from_bytes_until_nul(&self.strings_block()[offset..])
+            .expect("no null terminating string on C str?")
     }
 
     fn str_at_offset(&self, offset: usize) -> &'a str {
-        self.cstr_at_offset(offset).as_str().expect("not utf-8 cstr")
+        self.cstr_at_offset(offset).to_str().expect("not utf-8 cstr")
     }
 
     fn strings_block(&self) -> &'a [u8] {
