@@ -62,7 +62,7 @@ pub mod standard_nodes;
 mod pretty_print;
 
 use node::MemoryReservation;
-use parsing::{BigEndianU32, CStr, FdtData};
+use parsing::{u32_from_be_byte_slice, CStr, FdtData};
 use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
 
 /// Possible errors when attempting to create an `Fdt`
@@ -116,43 +116,43 @@ impl core::fmt::Debug for Fdt<'_> {
 #[repr(C)]
 struct FdtHeader {
     /// FDT header magic
-    magic: BigEndianU32,
+    magic: u32,
     /// Total size in bytes of the FDT structure
-    totalsize: BigEndianU32,
+    totalsize: u32,
     /// Offset in bytes from the start of the header to the structure block
-    off_dt_struct: BigEndianU32,
+    off_dt_struct: u32,
     /// Offset in bytes from the start of the header to the strings block
-    off_dt_strings: BigEndianU32,
+    off_dt_strings: u32,
     /// Offset in bytes from the start of the header to the memory reservation
     /// block
-    off_mem_rsvmap: BigEndianU32,
+    off_mem_rsvmap: u32,
     /// FDT version
-    version: BigEndianU32,
+    version: u32,
     /// Last compatible FDT version
-    last_comp_version: BigEndianU32,
+    last_comp_version: u32,
     /// System boot CPU ID
-    boot_cpuid_phys: BigEndianU32,
+    boot_cpuid_phys: u32,
     /// Length in bytes of the strings block
-    size_dt_strings: BigEndianU32,
+    size_dt_strings: u32,
     /// Length in bytes of the struct block
-    size_dt_struct: BigEndianU32,
+    size_dt_struct: u32,
 }
 
 impl FdtHeader {
     fn valid_magic(&self) -> bool {
-        self.magic.get() == 0xd00dfeed
+        self.magic == 0xd00dfeed
     }
 
     fn struct_range(&self) -> core::ops::Range<usize> {
-        let start = self.off_dt_struct.get() as usize;
-        let end = start + self.size_dt_struct.get() as usize;
+        let start = self.off_dt_struct as usize;
+        let end = start + self.size_dt_struct as usize;
 
         start..end
     }
 
     fn strings_range(&self) -> core::ops::Range<usize> {
-        let start = self.off_dt_strings.get() as usize;
-        let end = start + self.size_dt_strings.get() as usize;
+        let start = self.off_dt_strings as usize;
+        let end = start + self.size_dt_strings as usize;
 
         start..end
     }
@@ -184,7 +184,7 @@ impl<'a> Fdt<'a> {
 
         if !header.valid_magic() {
             return Err(FdtError::BadMagic);
-        } else if data.len() < header.totalsize.get() as usize {
+        } else if data.len() < header.totalsize as usize {
             return Err(FdtError::BufferTooSmall);
         }
 
@@ -204,7 +204,7 @@ impl<'a> Fdt<'a> {
 
         let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
         let real_size =
-            FdtHeader::from_bytes(&mut FdtData::new(tmp_header)).unwrap().totalsize.get() as usize;
+            FdtHeader::from_bytes(&mut FdtData::new(tmp_header)).unwrap().totalsize as usize;
 
         Self::new(core::slice::from_raw_parts(ptr, real_size))
     }
@@ -241,7 +241,7 @@ impl<'a> Fdt<'a> {
 
     /// Returns an iterator over the memory reservations
     pub fn memory_reservations(&self) -> impl Iterator<Item = MemoryReservation> + 'a {
-        let mut stream = FdtData::new(&self.data[self.header.off_mem_rsvmap.get() as usize..]);
+        let mut stream = FdtData::new(&self.data[self.header.off_mem_rsvmap as usize..]);
         let mut done = false;
 
         core::iter::from_fn(move || {
@@ -294,7 +294,7 @@ impl<'a> Fdt<'a> {
         self.all_nodes().find(|n| {
             n.properties()
                 .find(|p| p.name == "phandle")
-                .and_then(|p| Some(BigEndianU32::from_bytes(p.value)?.get() == phandle))
+                .and_then(|p| Some(u32_from_be_byte_slice(p.value)? == phandle))
                 .unwrap_or(false)
         })
     }
@@ -394,7 +394,7 @@ impl<'a> Fdt<'a> {
 
     /// Total size of the devicetree in bytes
     pub fn total_size(&self) -> usize {
-        self.header.totalsize.get() as usize
+        self.header.totalsize as usize
     }
 
     fn cstr_at_offset(&self, offset: usize) -> CStr<'a> {

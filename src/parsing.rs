@@ -21,32 +21,12 @@ impl<'a> CStr<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct BigEndianU32(u32);
-
-impl BigEndianU32 {
-    pub fn get(self) -> u32 {
-        self.0
-    }
-
-    pub(crate) fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(BigEndianU32(u32::from_be_bytes(bytes.get(..4)?.try_into().unwrap())))
-    }
+pub fn u32_from_be_byte_slice(bytes: &[u8]) -> Option<u32> {
+    Some(u32::from_be_bytes(bytes.get(..4)?.try_into().unwrap()))
 }
 
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct BigEndianU64(u64);
-
-impl BigEndianU64 {
-    pub fn get(&self) -> u64 {
-        self.0
-    }
-
-    pub(crate) fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(BigEndianU64(u64::from_be_bytes(bytes.get(..8)?.try_into().unwrap())))
-    }
+pub fn u64_from_be_byte_slice(bytes: &[u8]) -> Option<u64> {
+    Some(u64::from_be_bytes(bytes.get(..8)?.try_into().unwrap()))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -59,15 +39,15 @@ impl<'a> FdtData<'a> {
         Self { bytes }
     }
 
-    pub fn u32(&mut self) -> Option<BigEndianU32> {
-        let ret = BigEndianU32::from_bytes(self.bytes)?;
+    pub fn u32(&mut self) -> Option<u32> {
+        let ret = u32_from_be_byte_slice(self.bytes)?;
         self.skip(4);
 
         Some(ret)
     }
 
-    pub fn u64(&mut self) -> Option<BigEndianU64> {
-        let ret = BigEndianU64::from_bytes(self.bytes)?;
+    pub fn u64(&mut self) -> Option<u64> {
+        let ret = u64_from_be_byte_slice(self.bytes)?;
         self.skip(8);
 
         Some(ret)
@@ -81,7 +61,7 @@ impl<'a> FdtData<'a> {
         self.bytes
     }
 
-    pub fn peek_u32(&self) -> Option<BigEndianU32> {
+    pub fn peek_u32(&self) -> Option<u32> {
         Self::new(self.remaining()).u32()
     }
 
@@ -90,7 +70,7 @@ impl<'a> FdtData<'a> {
     }
 
     pub fn skip_nops(&mut self) {
-        while let Some(crate::node::FDT_NOP) = self.peek_u32().map(|n| n.get()) {
+        while let Some(crate::node::FDT_NOP) = self.peek_u32() {
             let _ = self.u32();
         }
     }

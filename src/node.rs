@@ -3,7 +3,7 @@
 // obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::{
-    parsing::{BigEndianU32, BigEndianU64, CStr, FdtData},
+    parsing::{u32_from_be_byte_slice, u64_from_be_byte_slice, CStr, FdtData},
     standard_nodes::{Compatible, MemoryRange, MemoryRegion},
     Fdt,
 };
@@ -17,8 +17,8 @@ const FDT_END: u32 = 5;
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 struct FdtProperty {
-    len: BigEndianU32,
-    name_offset: BigEndianU32,
+    len: u32,
+    name_offset: u32,
 }
 
 impl FdtProperty {
@@ -59,11 +59,11 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 return None;
             }
 
-            while stream.peek_u32()?.get() == FDT_NOP {
+            while stream.peek_u32()? == FDT_NOP {
                 stream.skip(4);
             }
 
-            if stream.peek_u32().unwrap().get() == FDT_PROP {
+            if stream.peek_u32().unwrap() == FDT_PROP {
                 Some(NodeProperty::parse(&mut stream, self.header))
             } else {
                 done = true;
@@ -81,11 +81,11 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
     pub fn children(self) -> impl Iterator<Item = FdtNode<'b, 'a>> {
         let mut stream = FdtData::new(self.props);
 
-        while stream.peek_u32().unwrap().get() == FDT_NOP {
+        while stream.peek_u32().unwrap() == FDT_NOP {
             stream.skip(4);
         }
 
-        while stream.peek_u32().unwrap().get() == FDT_PROP {
+        while stream.peek_u32().unwrap() == FDT_PROP {
             NodeProperty::parse(&mut stream, self.header);
         }
 
@@ -96,11 +96,11 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 return None;
             }
 
-            while stream.peek_u32()?.get() == FDT_NOP {
+            while stream.peek_u32()? == FDT_NOP {
                 stream.skip(4);
             }
 
-            if stream.peek_u32()?.get() == FDT_BEGIN_NODE {
+            if stream.peek_u32()? == FDT_BEGIN_NODE {
                 let origin = stream.remaining();
                 let ret = {
                     stream.skip(4);
@@ -152,15 +152,15 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 let mut stream = FdtData::new(prop.value);
                 reg = Some(core::iter::from_fn(move || {
                     let starting_address = match sizes.address_cells {
-                        1 => stream.u32()?.get() as usize,
-                        2 => stream.u64()?.get() as usize,
+                        1 => stream.u32()? as usize,
+                        2 => stream.u64()? as usize,
                         _ => return None,
                     } as *const u8;
 
                     let size = match sizes.size_cells {
                         0 => None,
-                        1 => Some(stream.u32()?.get() as usize),
-                        2 => Some(stream.u64()?.get() as usize),
+                        1 => Some(stream.u32()? as usize),
+                        2 => Some(stream.u64()? as usize),
                         _ => return None,
                     };
 
@@ -185,20 +185,20 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 let mut stream = FdtData::new(prop.value);
                 ranges = Some(core::iter::from_fn(move || {
                     let child_bus_address = match sizes.address_cells {
-                        1 => stream.u32()?.get() as usize,
-                        2 => stream.u64()?.get() as usize,
+                        1 => stream.u32()? as usize,
+                        2 => stream.u64()? as usize,
                         _ => return None,
                     };
 
                     let parent_bus_address = match sizes.address_cells {
-                        1 => stream.u32()?.get() as usize,
-                        2 => stream.u64()?.get() as usize,
+                        1 => stream.u32()? as usize,
+                        2 => stream.u64()? as usize,
                         _ => return None,
                     };
 
                     let size = match sizes.size_cells {
-                        1 => stream.u32()?.get() as usize,
-                        2 => stream.u64()?.get() as usize,
+                        1 => stream.u32()? as usize,
+                        2 => stream.u64()? as usize,
                         _ => return None,
                     };
 
@@ -248,14 +248,14 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         for property in self.properties() {
             match property.name {
                 "#address-cells" => {
-                    cell_sizes.address_cells = BigEndianU32::from_bytes(property.value)
+                    cell_sizes.address_cells = u32_from_be_byte_slice(property.value)
                         .expect("not enough bytes for #address-cells value")
-                        .get() as usize;
+                        as usize;
                 }
                 "#size-cells" => {
-                    cell_sizes.size_cells = BigEndianU32::from_bytes(property.value)
+                    cell_sizes.size_cells = u32_from_be_byte_slice(property.value)
                         .expect("not enough bytes for #size-cells value")
-                        .get() as usize;
+                        as usize;
                 }
                 _ => {}
             }
@@ -268,7 +268,7 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
     pub fn interrupt_parent(self) -> Option<FdtNode<'b, 'a>> {
         self.properties()
             .find(|p| p.name == "interrupt-parent")
-            .and_then(|p| self.header.find_phandle(BigEndianU32::from_bytes(p.value)?.get()))
+            .and_then(|p| self.header.find_phandle(u32_from_be_byte_slice(p.value)?))
     }
 
     /// `#interrupt-cells` property
@@ -276,7 +276,7 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         let mut interrupt_cells = None;
 
         if let Some(prop) = self.property("#interrupt-cells") {
-            interrupt_cells = BigEndianU32::from_bytes(prop.value).map(|n| n.get() as usize)
+            interrupt_cells = u32_from_be_byte_slice(prop.value).map(|n| n as usize)
         }
 
         interrupt_cells
@@ -292,8 +292,8 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 let mut stream = FdtData::new(prop.value);
                 interrupt = Some(core::iter::from_fn(move || {
                     let interrupt = match sizes {
-                        1 => stream.u32()?.get() as usize,
-                        2 => stream.u64()?.get() as usize,
+                        1 => stream.u32()? as usize,
+                        2 => stream.u64()? as usize,
                         _ => return None,
                     };
 
@@ -322,7 +322,7 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         let mut interrupt_cells = None;
         let parent = self
             .property("interrupt-parent")
-            .and_then(|p| self.header.find_phandle(BigEndianU32::from_bytes(p.value)?.get()))
+            .and_then(|p| self.header.find_phandle(u32_from_be_byte_slice(p.value)?))
             .or_else(|| {
                 Some(FdtNode {
                     name: "",
@@ -379,7 +379,7 @@ pub(crate) fn find_node<'b, 'a: 'b>(
 
     let curr_data = stream.remaining();
 
-    match stream.u32()?.get() {
+    match stream.u32()? {
         FDT_BEGIN_NODE => {}
         _ => return None,
     }
@@ -411,11 +411,11 @@ pub(crate) fn find_node<'b, 'a: 'b>(
 
     let parent_props = Some(stream.remaining());
 
-    while stream.peek_u32()?.get() == FDT_PROP {
+    while stream.peek_u32()? == FDT_PROP {
         let _ = NodeProperty::parse(stream, header);
     }
 
-    while stream.peek_u32()?.get() == FDT_BEGIN_NODE {
+    while stream.peek_u32()? == FDT_BEGIN_NODE {
         if let Some(p) = find_node(stream, next_part, header, parent_props) {
             return Some(p);
         }
@@ -423,7 +423,7 @@ pub(crate) fn find_node<'b, 'a: 'b>(
 
     stream.skip_nops();
 
-    if stream.u32()?.get() != FDT_END_NODE {
+    if stream.u32()? != FDT_END_NODE {
         return None;
     }
 
@@ -442,21 +442,21 @@ pub(crate) fn all_nodes<'b, 'a: 'b>(header: &'b Fdt<'a>) -> impl Iterator<Item =
             return None;
         }
 
-        while stream.peek_u32()?.get() == FDT_END_NODE {
+        while stream.peek_u32()? == FDT_END_NODE {
             parent_index -= 1;
             stream.skip(4);
         }
 
-        if stream.peek_u32()?.get() == FDT_END {
+        if stream.peek_u32()? == FDT_END {
             done = true;
             return None;
         }
 
-        while stream.peek_u32()?.get() == FDT_NOP {
+        while stream.peek_u32()? == FDT_NOP {
             stream.skip(4);
         }
 
-        match stream.u32()?.get() {
+        match stream.u32()? {
             FDT_BEGIN_NODE => {}
             _ => return None,
         }
@@ -470,11 +470,11 @@ pub(crate) fn all_nodes<'b, 'a: 'b>(header: &'b Fdt<'a>) -> impl Iterator<Item =
         parent_index += 1;
         parents[parent_index] = curr_node;
 
-        while stream.peek_u32()?.get() == FDT_NOP {
+        while stream.peek_u32()? == FDT_NOP {
             stream.skip(4);
         }
 
-        while stream.peek_u32()?.get() == FDT_PROP {
+        while stream.peek_u32()? == FDT_PROP {
             NodeProperty::parse(&mut stream, header);
         }
 
@@ -491,23 +491,23 @@ pub(crate) fn all_nodes<'b, 'a: 'b>(header: &'b Fdt<'a>) -> impl Iterator<Item =
 }
 
 pub(crate) fn skip_current_node<'a>(stream: &mut FdtData<'a>, header: &Fdt<'a>) {
-    assert_eq!(stream.u32().unwrap().get(), FDT_BEGIN_NODE, "bad node");
+    assert_eq!(stream.u32().unwrap(), FDT_BEGIN_NODE, "bad node");
 
     let unit_name = CStr::new(stream.remaining()).expect("unit_name C str").as_str().unwrap();
     let full_name_len = unit_name.len() + 1;
     skip_4_aligned(stream, full_name_len);
 
-    while stream.peek_u32().unwrap().get() == FDT_PROP {
+    while stream.peek_u32().unwrap() == FDT_PROP {
         NodeProperty::parse(stream, header);
     }
 
-    while stream.peek_u32().unwrap().get() == FDT_BEGIN_NODE {
+    while stream.peek_u32().unwrap() == FDT_BEGIN_NODE {
         skip_current_node(stream, header);
     }
 
     stream.skip_nops();
 
-    assert_eq!(stream.u32().unwrap().get(), FDT_END_NODE, "bad node");
+    assert_eq!(stream.u32().unwrap(), FDT_END_NODE, "bad node");
 }
 
 /// A node property
@@ -523,8 +523,8 @@ impl<'a> NodeProperty<'a> {
     /// Attempt to parse the property value as a `usize`
     pub fn as_usize(self) -> Option<usize> {
         match self.value.len() {
-            4 => BigEndianU32::from_bytes(self.value).map(|i| i.get() as usize),
-            8 => BigEndianU64::from_bytes(self.value).map(|i| i.get() as usize),
+            4 => u32_from_be_byte_slice(self.value).map(|i| i as usize),
+            8 => u64_from_be_byte_slice(self.value).map(|i| i as usize),
             _ => None,
         }
     }
@@ -535,19 +535,19 @@ impl<'a> NodeProperty<'a> {
     }
 
     fn parse(stream: &mut FdtData<'a>, header: &Fdt<'a>) -> Self {
-        match stream.u32().unwrap().get() {
+        match stream.u32().unwrap() {
             FDT_PROP => {}
             other => panic!("bad prop, tag: {}", other),
         }
 
         let prop = FdtProperty::from_bytes(stream).expect("FDT property");
-        let data_len = prop.len.get() as usize;
+        let data_len = prop.len as usize;
 
         let data = &stream.remaining()[..data_len];
 
         skip_4_aligned(stream, data_len);
 
-        NodeProperty { name: header.str_at_offset(prop.name_offset.get() as usize), value: data }
+        NodeProperty { name: header.str_at_offset(prop.name_offset as usize), value: data }
     }
 }
 
@@ -555,19 +555,19 @@ impl<'a> NodeProperty<'a> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct MemoryReservation {
-    pub(crate) address: BigEndianU64,
-    pub(crate) size: BigEndianU64,
+    pub(crate) address: u64,
+    pub(crate) size: u64,
 }
 
 impl MemoryReservation {
     /// Pointer representing the memory reservation address
     pub fn address(&self) -> *const u8 {
-        self.address.get() as usize as *const u8
+        self.address as usize as *const u8
     }
 
     /// Size of the memory reservation
     pub fn size(&self) -> usize {
-        self.size.get() as usize
+        self.size as usize
     }
 
     pub(crate) fn from_bytes(bytes: &mut FdtData<'_>) -> Option<Self> {

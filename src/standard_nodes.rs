@@ -4,7 +4,7 @@
 
 use crate::{
     node::{CellSizes, FdtNode, NodeProperty},
-    parsing::{BigEndianU32, BigEndianU64, CStr, FdtData},
+    parsing::{u32_from_be_byte_slice, u64_from_be_byte_slice, CStr, FdtData},
     Fdt,
 };
 
@@ -178,8 +178,8 @@ impl<'b, 'a: 'b> Cpu<'b, 'a> {
             .find(|p| p.name == "clock-frequency")
             .or_else(|| self.parent.property("clock-frequency"))
             .map(|p| match p.value.len() {
-                4 => BigEndianU32::from_bytes(p.value).unwrap().get() as usize,
-                8 => BigEndianU64::from_bytes(p.value).unwrap().get() as usize,
+                4 => u32_from_be_byte_slice(p.value).unwrap() as usize,
+                8 => u64_from_be_byte_slice(p.value).unwrap() as usize,
                 _ => unreachable!(),
             })
             .expect("clock-frequency is a required property of cpu nodes")
@@ -192,8 +192,8 @@ impl<'b, 'a: 'b> Cpu<'b, 'a> {
             .find(|p| p.name == "timebase-frequency")
             .or_else(|| self.parent.property("timebase-frequency"))
             .map(|p| match p.value.len() {
-                4 => BigEndianU32::from_bytes(p.value).unwrap().get() as usize,
-                8 => BigEndianU64::from_bytes(p.value).unwrap().get() as usize,
+                4 => u32_from_be_byte_slice(p.value).unwrap() as usize,
+                8 => u64_from_be_byte_slice(p.value).unwrap() as usize,
                 _ => unreachable!(),
             })
             .expect("timebase-frequency is a required property of cpu nodes")
@@ -222,8 +222,8 @@ impl<'a> CpuIds<'a> {
     /// The first listed CPU ID, which will always exist
     pub fn first(self) -> usize {
         match self.address_cells {
-            1 => BigEndianU32::from_bytes(self.reg.value).unwrap().get() as usize,
-            2 => BigEndianU64::from_bytes(self.reg.value).unwrap().get() as usize,
+            1 => u32_from_be_byte_slice(self.reg.value).unwrap() as usize,
+            2 => u64_from_be_byte_slice(self.reg.value).unwrap() as usize,
             n => panic!("address-cells of size {} is currently not supported", n),
         }
     }
@@ -234,8 +234,8 @@ impl<'a> CpuIds<'a> {
         core::iter::from_fn(move || match vals.remaining() {
             [] => None,
             _ => Some(match self.address_cells {
-                1 => vals.u32()?.get() as usize,
-                2 => vals.u64()?.get() as usize,
+                1 => vals.u32()? as usize,
+                2 => vals.u64()? as usize,
                 n => panic!("address-cells of size {} is currently not supported", n),
             }),
         })
@@ -303,9 +303,9 @@ impl<'a> Memory<'_, 'a> {
             let size = stream.u32().expect("size");
 
             mapped_area = Some(MappedArea {
-                effective_address: effective_address.get() as usize,
-                physical_address: physical_address.get() as usize,
-                size: size.get() as usize,
+                effective_address: effective_address as usize,
+                physical_address: physical_address as usize,
+                size: size as usize,
             });
         }
 
