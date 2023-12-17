@@ -187,9 +187,9 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 let mut stream = FdtData::new(prop.value);
                 ranges = Some(core::iter::from_fn(move || {
                     let (child_bus_address_hi, child_bus_address) = match sizes.address_cells {
-                        1 => (None, stream.u32()?.get() as usize),
-                        2 => (None, stream.u64()?.get() as usize),
-                        3 => (Some(stream.u32()?.get()), stream.u64()?.get() as usize),
+                        1 => (0, stream.u32()?.get() as usize),
+                        2 => (0, stream.u64()?.get() as usize),
+                        3 => (stream.u32()?.get(), stream.u64()?.get() as usize),
                         _ => return None,
                     };
 
