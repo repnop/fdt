@@ -4,7 +4,7 @@
 
 use crate::{
     parsing::{BigEndianU32, BigEndianU64, CStr, FdtData},
-    standard_nodes::{Compatible, MemoryRegion, MemoryRange},
+    standard_nodes::{Compatible, MemoryRange, MemoryRegion},
     Fdt,
 };
 

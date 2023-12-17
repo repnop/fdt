@@ -35,7 +35,7 @@
 //!     }
 //!
 //!     if let Some(stdout) = chosen.stdout() {
-//!         println!("It would write stdout to: {}", stdout.name);
+//!         println!("It would write stdout to: {}", stdout.node().name);
 //!     }
 //!
 //!     let soc = fdt.find_node("/soc");
@@ -63,7 +63,7 @@ mod pretty_print;
 
 use node::MemoryReservation;
 use parsing::{BigEndianU32, CStr, FdtData};
-use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRegion, MemoryRange, Root};
+use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
 
 /// Possible errors when attempting to create an `Fdt`
 #[derive(Debug, Clone, Copy, PartialEq)]
