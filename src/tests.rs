@@ -62,14 +62,16 @@ fn parses_populated_ranges() {
         ranges,
         &[
             MemoryRange {
-                child_bus_address: 0x100_0000_0000_0000,
-                parent_bus_address: 0x0,
-                size: 0x300_0000_0000_0000
+                child_bus_address: 0x0000_0000_0000_0000,
+                child_bus_address_hi: 0x0100_0000,
+                parent_bus_address: 0x3000000,
+                size: 0x10000,
             },
             MemoryRange {
-                child_bus_address: 0x1_0000_0200_0000,
+                child_bus_address: 0x40000000,
+                child_bus_address_hi: 0x2000000,
                 parent_bus_address: 0x4000_0000,
-                size: 0x4000_0000
+                size: 0x4000_0000,
             }
         ]
     );
