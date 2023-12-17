@@ -209,6 +209,20 @@ impl<'a> Fdt<'a> {
         Self::new(core::slice::from_raw_parts(ptr, real_size))
     }
 
+    /// Return reference to raw data. This can be used to obtain the original pointer passed to
+    /// [Fdt::from_ptr].
+    ///
+    /// # Example
+    /// ```
+    /// # let fdt_ref: &[u8] = include_bytes!("../dtb/test.dtb");
+    /// # let original_pointer = fdt_ref.as_ptr();
+    /// let fdt = unsafe{fdt::Fdt::from_ptr(original_pointer)}.unwrap();
+    /// assert_eq!(fdt.raw_data().as_ptr(), original_pointer);
+    /// ```
+    pub fn raw_data(&self) -> &'a [u8] {
+        self.data
+    }
+
     /// Return the `/aliases` node, if one exists
     pub fn aliases(&self) -> Option<Aliases<'_, 'a>> {
         Some(Aliases {
