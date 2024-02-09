@@ -4,7 +4,7 @@
 
 use crate::{
     parsing::{BigEndianU32, BigEndianU64, CStr, FdtData},
-    standard_nodes::{Compatible, MemoryRange, MemoryRegion},
+    standard_nodes::{Compatible, InterruptMapMask, InterruptMapping, MemoryRange, MemoryRegion},
     Fdt,
 };
 
@@ -320,6 +320,90 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         }
 
         interrupt
+    }
+
+    /// `interrupt-map` property
+    pub fn interrupt_map(self) -> Option<impl Iterator<Item = InterruptMapping> + 'b> {
+        let address_size = self.cell_sizes().address_cells;
+        let interrupt_size = self.interrupt_cells()?;
+
+        let mut map = None;
+        for prop in self.properties() {
+            if prop.name == "interrupt-map" {
+                let mut stream = FdtData::new(prop.value);
+                map = Some(core::iter::from_fn(move || {
+                    let (child_unit_address_hi, child_unit_address) = match address_size {
+                        0 => (0x0, 0x0),
+                        1 => (0x0, stream.u32()?.get() as usize),
+                        2 => (0x0, stream.u64()?.get() as usize),
+                        3 => (stream.u32()?.get(), stream.u64()?.get() as usize),
+                        _ => return None,
+                    };
+                    let child_interrupt_specifier = match interrupt_size {
+                        1 => stream.u32()?.get() as usize,
+                        2 => stream.u64()?.get() as usize,
+                        _ => return None,
+                    };
+                    let parent_phandle = stream.u32()?.get();
+                    let parent = self.header.find_phandle(parent_phandle)?;
+                    let (parent_unit_address_hi, parent_unit_address) =
+                        match parent.cell_sizes().address_cells {
+                            0 => (0x0, 0x0),
+                            1 => (0x0, stream.u32()?.get() as usize),
+                            2 => (0x0, stream.u64()?.get() as usize),
+                            3 => (stream.u32()?.get(), stream.u64()?.get() as usize),
+                            _ => return None,
+                        };
+                    let parent_interrupt_specifier = match parent.interrupt_cells()? {
+                        1 => stream.u32()?.get() as usize,
+                        2 => stream.u64()?.get() as usize,
+                        _ => return None,
+                    };
+
+                    Some(InterruptMapping {
+                        child_unit_address,
+                        child_unit_address_hi,
+                        child_interrupt_specifier,
+                        parent_phandle,
+                        parent_unit_address,
+                        parent_unit_address_hi,
+                        parent_interrupt_specifier,
+                    })
+                }));
+                break;
+            }
+        }
+
+        map
+    }
+
+    /// `interrupt-map-mask` property
+    pub fn interrupt_map_mask(self) -> Option<InterruptMapMask> {
+        let address_size = self.cell_sizes().address_cells;
+        let interrupt_size = self.interrupt_cells()?;
+
+        let mut mask = None;
+        for prop in self.properties() {
+            if prop.name == "interrupt-map-mask" {
+                let mut stream = FdtData::new(prop.value);
+                let (address_mask_hi, address_mask) = match address_size {
+                    0 => (0, 0),
+                    1 => (0, stream.u32()?.get() as usize),
+                    2 => (0, stream.u64()?.get() as usize),
+                    3 => (stream.u32()?.get(), stream.u64()?.get() as usize),
+                    _ => return None,
+                };
+                let interrupt_mask = match interrupt_size {
+                    1 => stream.u32()?.get() as usize,
+                    2 => stream.u64()?.get() as usize,
+                    _ => return None,
+                };
+                mask = Some(InterruptMapMask { address_mask, address_mask_hi, interrupt_mask });
+                break;
+            }
+        }
+
+        mask
     }
 
     pub(crate) fn parent_cell_sizes(self) -> CellSizes {
