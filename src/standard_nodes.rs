@@ -347,3 +347,23 @@ pub struct MemoryRange {
     /// Size of range
     pub size: usize,
 }
+
+/// Interrupt mapping, described by `interrupt-map` properties
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InterruptMapping {
+    pub child_unit_address: usize,
+    /// The high bits of the child unit address, if present
+    pub child_unit_address_hi: u32,
+    pub child_interrupt_specifier: usize,
+    pub parent_phandle: u32,
+    pub parent_unit_address: usize,
+    /// The high bits of the parent unit address, if present
+    pub parent_unit_address_hi: u32,
+    pub parent_interrupt_specifier: usize,
+}
+
+pub struct InterruptMapMask {
+    pub address_mask: usize,
+    pub address_mask_hi: u32,
+    pub interrupt_mask: usize,
+}
