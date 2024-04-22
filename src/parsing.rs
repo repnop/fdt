@@ -3,21 +3,22 @@
 // obtain one at https://mozilla.org/MPL/2.0/.
 
 use core::convert::TryInto;
-pub struct CStr<'a>(&'a [u8]);
+use core::ffi::CStr as FfiCStr;
+
+pub struct CStr<'a>(&'a FfiCStr);
 
 impl<'a> CStr<'a> {
     pub fn new(data: &'a [u8]) -> Option<Self> {
-        let end = data.iter().position(|&b| b == 0)?;
-        Some(Self(&data[..end]))
+        Some(Self(FfiCStr::from_bytes_until_nul(data).ok()?))
     }
 
     /// Does not include the null terminating byte
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.0.to_bytes().len().saturating_sub(1)
     }
 
     pub fn as_str(&self) -> Option<&'a str> {
-        core::str::from_utf8(self.0).ok()
+        self.0.to_str().ok()
     }
 }
 
