@@ -340,12 +340,10 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
             .property("interrupt-parent")
             .and_then(|p| self.header.find_phandle(BigEndianU32::from_bytes(p.value)?.get()))
             .or_else(|| {
-                Some(FdtNode {
-                    name: "",
-                    props: self.parent_props?,
-                    header: self.header,
-                    parent_props: None,
-                })
+                // attempt to find the `interrupt-parent` property in the parent node
+                let p = FdtNode::new("", self.header, self.parent_props?, None)
+                    .property("interrupt-parent")?;
+                self.header.find_phandle(BigEndianU32::from_bytes(p.value)?.get())
             });
 
         if let Some(size) = parent.and_then(|parent| parent.interrupt_cells()) {

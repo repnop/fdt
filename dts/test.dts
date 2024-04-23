@@ -58,6 +58,7 @@
 		#address-cells = <0x02>;
 		#size-cells = <0x02>;
 		compatible = "simple-bus";
+		interrupt-parent = <0x03>;
 		ranges;
 
 		flash@20000000 {
@@ -98,6 +99,7 @@
 		test@100000 {
 			phandle = <0x04>;
 			reg = <0x00 0x100000 0x00 0x1000>;
+			interrupts = <0xff>;
 			compatible = "sifive,test1\0sifive,test0\0syscon";
 		};
 
