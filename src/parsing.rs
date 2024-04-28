@@ -61,20 +61,21 @@ impl<'a> FdtData<'a> {
 
     pub fn u32(&mut self) -> Option<BigEndianU32> {
         let ret = BigEndianU32::from_bytes(self.bytes)?;
-        self.skip(4);
+        self.skip(4)?;
 
         Some(ret)
     }
 
     pub fn u64(&mut self) -> Option<BigEndianU64> {
         let ret = BigEndianU64::from_bytes(self.bytes)?;
-        self.skip(8);
+        self.skip(8)?;
 
         Some(ret)
     }
 
-    pub fn skip(&mut self, n_bytes: usize) {
-        self.bytes = self.bytes.get(n_bytes..).unwrap_or_default()
+    pub fn skip(&mut self, n_bytes: usize) -> Option<()> {
+        self.bytes = self.bytes.get(n_bytes..)?;
+        Some(())
     }
 
     pub fn remaining(&self) -> &'a [u8] {
