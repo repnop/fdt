@@ -322,6 +322,30 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         interrupt
     }
 
+    /// `interrupts-extended` property
+    pub fn interrupts_extended(self) -> Option<impl Iterator<Item = usize> + 'a> {
+        let sizes = self.interrupt_cells()?;
+
+        let mut interrupt = None;
+        for prop in self.properties() {
+            if prop.name == "interrupts-extended" {
+                let mut stream = FdtData::new(prop.value);
+                interrupt = Some(core::iter::from_fn(move || {
+                    let interrupt = match sizes {
+                        1 => stream.u32()?.get() as usize,
+                        2 => stream.u64()?.get() as usize,
+                        _ => return None,
+                    };
+
+                    Some(interrupt)
+                }));
+                break;
+            }
+        }
+
+        interrupt
+    }
+
     pub(crate) fn parent_cell_sizes(self) -> CellSizes {
         let mut cell_sizes = CellSizes::default();
 
