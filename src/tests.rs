@@ -271,3 +271,33 @@ fn interrupt_cells() {
     std::println!("{:?}", uart.parent_interrupt_cells());
     assert_eq!(uart.interrupts().unwrap().collect::<std::vec::Vec<_>>(), std::vec![0xA]);
 }
+
+#[test]
+fn property_cell_size_list() {
+    let fdt = Fdt::new(TEST).unwrap();
+    let uart = fdt.find_node("/soc/pci").unwrap();
+
+    let int_map_mask_list = uart
+        .property("interrupt-map-mask")
+        .unwrap()
+        .iter_cell_size(uart.interrupt_cells().unwrap_or(1).into())
+        .collect::<std::vec::Vec<u64>>();
+
+    std::println!("{int_map_mask_list:?}");
+    assert_eq!(int_map_mask_list, std::vec![0x1800, 0x00, 0x00, 0x07]);
+}
+
+#[test]
+fn property_prop_encoded_list() {
+    let fdt = Fdt::new(TEST).unwrap();
+    let node = fdt.find_node("/soc/rtc").unwrap();
+
+    let int_map_mask_list = node
+        .property("reg")
+        .unwrap()
+        .iter_prop_encoded(node.parent_cell_sizes())
+        .collect::<std::vec::Vec<(u64, u64)>>();
+
+    std::println!("{int_map_mask_list:?}");
+    assert_eq!(int_map_mask_list, std::vec![(0x101000, 0x1000)]);
+}

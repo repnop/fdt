@@ -150,7 +150,7 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
     /// an `#address-cells` value of 3.
     pub fn reg(self) -> Option<impl Iterator<Item = crate::MemoryRegion> + 'a> {
         let sizes = self.parent_cell_sizes();
-        if sizes.address_cells > 2 || sizes.size_cells > 2 {
+        if usize::from(sizes.address_cells) > 2 || usize::from(sizes.size_cells) > 2 {
             return None;
         }
 
@@ -160,15 +160,15 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 let mut stream = FdtData::new(prop.value);
                 reg = Some(core::iter::from_fn(move || {
                     let starting_address = match sizes.address_cells {
-                        1 => stream.u32()?.get() as usize,
-                        2 => stream.u64()?.get() as usize,
+                        CellSize::One => stream.u32()?.get() as usize,
+                        CellSize::Two => stream.u64()?.get() as usize,
                         _ => return None,
                     } as *const u8;
 
                     let size = match sizes.size_cells {
-                        0 => None,
-                        1 => Some(stream.u32()?.get() as usize),
-                        2 => Some(stream.u64()?.get() as usize),
+                        CellSize::None => None,
+                        CellSize::One => Some(stream.u32()?.get() as usize),
+                        CellSize::Two => Some(stream.u64()?.get() as usize),
                         _ => return None,
                     };
 
@@ -185,7 +185,10 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         let sizes = self.cell_sizes();
         let parent_sizes = self.parent_cell_sizes();
 
-        if sizes.address_cells > 3 || sizes.size_cells > 2 || parent_sizes.size_cells > 2 {
+        if usize::from(sizes.address_cells) > 3
+            || usize::from(sizes.size_cells) > 2
+            || usize::from(parent_sizes.size_cells) > 2
+        {
             return None;
         }
 
@@ -195,21 +198,21 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 let mut stream = FdtData::new(prop.value);
                 ranges = Some(core::iter::from_fn(move || {
                     let (child_bus_address_hi, child_bus_address) = match sizes.address_cells {
-                        1 => (0, stream.u32()?.get() as usize),
-                        2 => (0, stream.u64()?.get() as usize),
-                        3 => (stream.u32()?.get(), stream.u64()?.get() as usize),
+                        CellSize::One => (0, stream.u32()?.get() as usize),
+                        CellSize::Two => (0, stream.u64()?.get() as usize),
+                        CellSize::Three => (stream.u32()?.get(), stream.u64()?.get() as usize),
                         _ => return None,
                     };
 
                     let parent_bus_address = match parent_sizes.address_cells {
-                        1 => stream.u32()?.get() as usize,
-                        2 => stream.u64()?.get() as usize,
+                        CellSize::One => stream.u32()?.get() as usize,
+                        CellSize::Two => stream.u64()?.get() as usize,
                         _ => return None,
                     };
 
                     let size = match sizes.size_cells {
-                        1 => stream.u32()?.get() as usize,
-                        2 => stream.u64()?.get() as usize,
+                        CellSize::One => stream.u32()?.get() as usize,
+                        CellSize::Two => stream.u64()?.get() as usize,
                         _ => return None,
                     };
 
@@ -236,8 +239,8 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
             let mut stream = FdtData::new(prop.value);
             return Some(core::iter::from_fn(move || {
                 Some(RawReg {
-                    address: stream.take(sizes.address_cells * 4)?,
-                    size: stream.take(sizes.size_cells * 4)?,
+                    address: stream.take(usize::from(sizes.address_cells) * 4)?,
+                    size: stream.take(usize::from(sizes.size_cells) * 4)?,
                 })
             }));
         }
@@ -266,12 +269,14 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 "#address-cells" => {
                     cell_sizes.address_cells = BigEndianU32::from_bytes(property.value)
                         .expect("not enough bytes for #address-cells value")
-                        .get() as usize;
+                        .get()
+                        .into();
                 }
                 "#size-cells" => {
                     cell_sizes.size_cells = BigEndianU32::from_bytes(property.value)
                         .expect("not enough bytes for #size-cells value")
-                        .get() as usize;
+                        .get()
+                        .into();
                 }
                 _ => {}
             }
@@ -381,17 +386,116 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
 }
 
 /// The number of cells (big endian u32s) that addresses and sizes take
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct CellSizes {
     /// Size of values representing an address
-    pub address_cells: usize,
+    pub address_cells: CellSize,
     /// Size of values representing a size
-    pub size_cells: usize,
+    pub size_cells: CellSize,
+}
+
+impl CellSizes {
+    /// Creates a new [CellSizes].
+    pub const fn new() -> Self {
+        Self { address_cells: CellSize::Two, size_cells: CellSize::One }
+    }
 }
 
 impl Default for CellSizes {
     fn default() -> Self {
-        CellSizes { address_cells: 2, size_cells: 1 }
+        Self::new()
+    }
+}
+
+/// Represents the cell size of a property value.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CellSize {
+    None = 0,
+    One = 1,
+    Two = 2,
+    Three = 3,
+}
+
+impl CellSize {
+    /// Creates a new [CellSize].
+    pub const fn new() -> Self {
+        Self::One
+    }
+
+    /// Infallible function that converts a [`u8`] into a [CellSize].
+    pub const fn from_u8(val: u8) -> Self {
+        match val {
+            1 => Self::One,
+            2 => Self::Two,
+            3 => Self::Three,
+            _ => Self::None,
+        }
+    }
+
+    /// Converts a [CellSize] into a [`u8`].
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+impl From<u8> for CellSize {
+    fn from(val: u8) -> Self {
+        Self::from_u8(val)
+    }
+}
+
+impl From<u16> for CellSize {
+    fn from(val: u16) -> Self {
+        Self::from_u8(val as u8)
+    }
+}
+
+impl From<u32> for CellSize {
+    fn from(val: u32) -> Self {
+        Self::from_u8(val as u8)
+    }
+}
+
+impl From<u64> for CellSize {
+    fn from(val: u64) -> Self {
+        Self::from_u8(val as u8)
+    }
+}
+
+impl From<usize> for CellSize {
+    fn from(val: usize) -> Self {
+        Self::from_u8(val as u8)
+    }
+}
+
+impl From<CellSize> for u8 {
+    fn from(val: CellSize) -> Self {
+        val.to_u8() as Self
+    }
+}
+
+impl From<CellSize> for u16 {
+    fn from(val: CellSize) -> Self {
+        val.to_u8() as Self
+    }
+}
+
+impl From<CellSize> for u32 {
+    fn from(val: CellSize) -> Self {
+        val.to_u8() as Self
+    }
+}
+
+impl From<CellSize> for u64 {
+    fn from(val: CellSize) -> Self {
+        val.to_u8() as Self
+    }
+}
+
+impl From<CellSize> for usize {
+    fn from(val: CellSize) -> Self {
+        val.to_u8() as Self
     }
 }
 
@@ -567,6 +671,42 @@ impl<'a> NodeProperty<'a> {
             8 => BigEndianU64::from_bytes(self.value).map(|i| i.get() as usize),
             _ => None,
         }
+    }
+
+    /// Attempts to parse the property value as a list of [`u64`].
+    ///
+    /// Only handles property values with uniform cell sizes.
+    ///
+    /// For `prop-encoded-array` property values use [iter_prop_encoded](Self::iter_prop_encoded).
+    pub fn iter_cell_size(self, cell_size: CellSize) -> impl Iterator<Item = u64> + 'a {
+        let mut cells = FdtData::new(self.value);
+
+        core::iter::from_fn(move || match cell_size {
+            CellSize::One => Some(cells.u32()?.get() as u64),
+            CellSize::Two => Some(cells.u64()?.get()),
+            _ => None,
+        })
+    }
+
+    /// Attempts to parse the property value as a `prop-encoded-array` list of [`u64`] tuples.
+    pub fn iter_prop_encoded(self, cell_sizes: CellSizes) -> impl Iterator<Item = (u64, u64)> + 'a {
+        let mut cells = FdtData::new(self.value);
+
+        core::iter::from_fn(move || {
+            let addr = match cell_sizes.address_cells {
+                CellSize::One => Some(cells.u32()?.get() as u64),
+                CellSize::Two => Some(cells.u64()?.get()),
+                _ => None,
+            }?;
+
+            let size = match cell_sizes.size_cells {
+                CellSize::One => Some(cells.u32()?.get() as u64),
+                CellSize::Two => Some(cells.u64()?.get()),
+                _ => None,
+            }?;
+
+            Some((addr, size))
+        })
     }
 
     /// Attempt to parse the property value as a `&str`
