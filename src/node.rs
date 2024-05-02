@@ -71,7 +71,7 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 stream.skip(4);
             }
 
-            if stream.peek_u32().unwrap().get() == FDT_PROP {
+            if stream.peek_u32()?.get() == FDT_PROP {
                 Some(NodeProperty::parse(&mut stream, self.header))
             } else {
                 done = true;
