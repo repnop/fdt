@@ -545,6 +545,17 @@ impl<'a> NodeProperty<'a> {
         }
     }
 
+    /// Attempts to parse the property value as a list of [`usize`].
+    pub fn iter_cell_size(self, cell_size: usize) -> impl Iterator<Item = u64> + 'a {
+        let mut cells = FdtData::new(self.value);
+
+        core::iter::from_fn(move || match cell_size {
+            1 => Some(cells.u32()?.get() as u64),
+            2 => Some(cells.u64()?.get()), 
+            _ => None,
+        })
+    }
+
     /// Attempt to parse the property value as a `&str`
     pub fn as_str(self) -> Option<&'a str> {
         core::str::from_utf8(self.value).map(|s| s.trim_end_matches('\0')).ok()
