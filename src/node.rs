@@ -185,7 +185,10 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         let sizes = self.cell_sizes();
         let parent_sizes = self.parent_cell_sizes();
 
-        if usize::from(sizes.address_cells) > 3 || usize::from(sizes.size_cells) > 2 || usize::from(parent_sizes.size_cells) > 2 {
+        if usize::from(sizes.address_cells) > 3
+            || usize::from(sizes.size_cells) > 2
+            || usize::from(parent_sizes.size_cells) > 2
+        {
             return None;
         }
 
@@ -266,12 +269,14 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
                 "#address-cells" => {
                     cell_sizes.address_cells = BigEndianU32::from_bytes(property.value)
                         .expect("not enough bytes for #address-cells value")
-                        .get().into();
+                        .get()
+                        .into();
                 }
                 "#size-cells" => {
                     cell_sizes.size_cells = BigEndianU32::from_bytes(property.value)
                         .expect("not enough bytes for #size-cells value")
-                        .get().into();
+                        .get()
+                        .into();
                 }
                 _ => {}
             }
@@ -368,10 +373,7 @@ pub struct CellSizes {
 impl CellSizes {
     /// Creates a new [CellSizes].
     pub const fn new() -> Self {
-        Self {
-            address_cells: CellSize::Two,
-            size_cells: CellSize::One,
-        }
+        Self { address_cells: CellSize::Two, size_cells: CellSize::One }
     }
 }
 
@@ -648,6 +650,10 @@ impl<'a> NodeProperty<'a> {
     }
 
     /// Attempts to parse the property value as a list of [`u64`].
+    ///
+    /// Only handles property values with uniform cell sizes.
+    ///
+    /// For `prop-encoded-array` property values use [iter_prop_encoded](Self::iter_prop_encoded).
     pub fn iter_cell_size(self, cell_size: CellSize) -> impl Iterator<Item = u64> + 'a {
         let mut cells = FdtData::new(self.value);
 
@@ -655,6 +661,27 @@ impl<'a> NodeProperty<'a> {
             CellSize::One => Some(cells.u32()?.get() as u64),
             CellSize::Two => Some(cells.u64()?.get()),
             _ => None,
+        })
+    }
+
+    /// Attempts to parse the property value as a `prop-encoded-array` list of [`u64`] tuples.
+    pub fn iter_prop_encoded(self, cell_sizes: CellSizes) -> impl Iterator<Item = (u64, u64)> + 'a {
+        let mut cells = FdtData::new(self.value);
+
+        core::iter::from_fn(move || {
+            let addr = match cell_sizes.address_cells {
+                CellSize::One => Some(cells.u32()?.get() as u64),
+                CellSize::Two => Some(cells.u64()?.get()),
+                _ => None,
+            }?;
+
+            let size = match cell_sizes.size_cells {
+                CellSize::One => Some(cells.u32()?.get() as u64),
+                CellSize::Two => Some(cells.u64()?.get()),
+                _ => None,
+            }?;
+
+            Some((addr, size))
         })
     }
 
