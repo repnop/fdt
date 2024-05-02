@@ -280,7 +280,7 @@ fn property_cell_size_list() {
     let int_map_mask_list = uart
         .property("interrupt-map-mask")
         .unwrap()
-        .iter_cell_size(uart.interrupt_cells().unwrap_or(1))
+        .iter_cell_size(uart.interrupt_cells().unwrap_or(1).into())
         .collect::<std::vec::Vec<u64>>();
 
     std::println!("{int_map_mask_list:?}");

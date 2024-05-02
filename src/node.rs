@@ -371,6 +371,98 @@ impl Default for CellSizes {
     }
 }
 
+/// Represents the cell size of a property value.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CellSize {
+    None = 0,
+    One = 1,
+    Two = 2,
+    Three = 3,
+}
+
+impl CellSize {
+    /// Creates a new [CellSize].
+    pub const fn new() -> Self {
+        Self::One
+    }
+
+    /// Infallible function that converts a [`u8`] into a [CellSize].
+    pub const fn from_u8(val: u8) -> Self {
+        match val {
+            1 => Self::One,
+            2 => Self::Two,
+            3 => Self::Three,
+            _ => Self::None,
+        }
+    }
+
+    /// Converts a [CellSize] into a [`u8`].
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+impl From<u8> for CellSize {
+    fn from(val: u8) -> Self {
+        Self::from_u8(val)
+    }
+}
+
+impl From<u16> for CellSize {
+    fn from(val: u16) -> Self {
+        Self::from_u8(val as u8)
+    }
+}
+
+impl From<u32> for CellSize {
+    fn from(val: u32) -> Self {
+        Self::from_u8(val as u8)
+    }
+}
+
+impl From<u64> for CellSize {
+    fn from(val: u64) -> Self {
+        Self::from_u8(val as u8)
+    }
+}
+
+impl From<usize> for CellSize {
+    fn from(val: usize) -> Self {
+        Self::from_u8(val as u8)
+    }
+}
+
+impl From<CellSize> for u8 {
+    fn from(val: CellSize) -> Self {
+        val.to_u8() as Self
+    }
+}
+
+impl From<CellSize> for u16 {
+    fn from(val: CellSize) -> Self {
+        val.to_u8() as Self
+    }
+}
+
+impl From<CellSize> for u32 {
+    fn from(val: CellSize) -> Self {
+        val.to_u8() as Self
+    }
+}
+
+impl From<CellSize> for u64 {
+    fn from(val: CellSize) -> Self {
+        val.to_u8() as Self
+    }
+}
+
+impl From<CellSize> for usize {
+    fn from(val: CellSize) -> Self {
+        val.to_u8() as Self
+    }
+}
+
 /// A raw `reg` property value set
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RawReg<'a> {
@@ -546,12 +638,12 @@ impl<'a> NodeProperty<'a> {
     }
 
     /// Attempts to parse the property value as a list of [`usize`].
-    pub fn iter_cell_size(self, cell_size: usize) -> impl Iterator<Item = u64> + 'a {
+    pub fn iter_cell_size(self, cell_size: CellSize) -> impl Iterator<Item = u64> + 'a {
         let mut cells = FdtData::new(self.value);
 
         core::iter::from_fn(move || match cell_size {
-            1 => Some(cells.u32()?.get() as u64),
-            2 => Some(cells.u64()?.get()), 
+            CellSize::One => Some(cells.u32()?.get() as u64),
+            CellSize::Two => Some(cells.u64()?.get()),
             _ => None,
         })
     }
