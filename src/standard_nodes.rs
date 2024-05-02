@@ -159,7 +159,7 @@ pub struct Cpu<'b, 'a: 'b> {
 impl<'b, 'a: 'b> Cpu<'b, 'a> {
     /// Return the IDs for the given CPU
     pub fn ids(self) -> CpuIds<'a> {
-        let address_cells = self.node.parent_cell_sizes().address_cells;
+        let address_cells = usize::from(self.node.parent_cell_sizes().address_cells);
 
         CpuIds {
             reg: self
