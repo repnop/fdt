@@ -346,7 +346,8 @@ impl<'b, 'a: 'b> FdtNode<'b, 'a> {
         interrupt
     }
 
-    pub(crate) fn parent_cell_sizes(self) -> CellSizes {
+    /// Gets the [CellSizes] property of the parent node.
+    pub fn parent_cell_sizes(self) -> CellSizes {
         let mut cell_sizes = CellSizes::default();
 
         if let Some(parent) = self.parent_props {
