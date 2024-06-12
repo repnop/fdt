@@ -6,24 +6,56 @@ extern crate std;
 
 use crate::{node::RawReg, *};
 
-static TEST: &[u8] = include_bytes!("../dtb/test.dtb");
-static ISSUE_3: &[u8] = include_bytes!("../dtb/issue-3.dtb");
-static SIFIVE: &[u8] = include_bytes!("../dtb/sifive.dtb");
+struct AlignArrayUp<const N: usize>([u8; N]);
+
+impl<const N: usize> AlignArrayUp<N> {
+    const fn align_up<const M: usize>(self) -> [u8; M] {
+        assert!(M > N);
+        assert!(M % 4 == 0);
+
+        let mut copy: [u8; M] = [0u8; M];
+        let mut i = 0;
+
+        while i < N {
+            copy[i] = self.0[i];
+        }
+
+        return copy;
+    }
+}
+
+#[repr(align(4))]
+struct Align4<const N: usize>([u8; N]);
+
+impl<const N: usize> Align4<N> {
+    const fn new(a: [u8; N]) -> Self {
+        Self(a)
+    }
+
+    fn as_slice(&self) -> &[u32] {
+        unsafe { core::slice::from_raw_parts(self.0.as_ptr().cast::<u32>(), self.0.len() / 4) }
+    }
+}
+
+static TEST: Align4<3764> =
+    Align4::new(AlignArrayUp(*include_bytes!("../dtb/test.dtb")).align_up::<3764>());
+static ISSUE_3: Align4<4658> = Align4::new(*include_bytes!("../dtb/issue-3.dtb"));
+static SIFIVE: Align4<3872> = Align4::new(*include_bytes!("../dtb/sifive.dtb"));
 
 #[test]
 fn returns_fdt() {
-    assert!(Fdt::new(TEST).is_ok());
+    assert!(Fdt::new(TEST.as_slice()).is_ok());
 }
 
 #[test]
 fn finds_root_node() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     assert!(fdt.find_node("/").is_some(), "couldn't find root node");
 }
 
 #[test]
 fn finds_root_node_properties() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let prop = fdt
         .find_node("/")
         .unwrap()
@@ -35,13 +67,13 @@ fn finds_root_node_properties() {
 
 #[test]
 fn finds_child_of_root_node() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     assert!(fdt.find_node("/cpus").is_some(), "couldn't find cpus node");
 }
 
 #[test]
 fn correct_flash_regions() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let regions = fdt.find_node("/soc/flash").unwrap().reg().unwrap().collect::<std::vec::Vec<_>>();
 
     assert_eq!(
@@ -55,7 +87,7 @@ fn correct_flash_regions() {
 
 #[test]
 fn parses_populated_ranges() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let ranges = fdt.find_node("/soc/pci").unwrap().ranges().unwrap().collect::<std::vec::Vec<_>>();
 
     assert_eq!(
@@ -79,7 +111,7 @@ fn parses_populated_ranges() {
 
 #[test]
 fn parses_empty_ranges() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let ranges = fdt.find_node("/soc").unwrap().ranges().unwrap().collect::<std::vec::Vec<_>>();
 
     assert_eq!(ranges, &[]);
@@ -87,13 +119,13 @@ fn parses_empty_ranges() {
 
 #[test]
 fn finds_with_addr() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     assert_eq!(fdt.find_node("/soc/virtio_mmio@10004000").unwrap().name, "virtio_mmio@10004000");
 }
 
 #[test]
 fn compatibles() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let res = fdt
         .find_node("/soc/test")
         .unwrap()
@@ -107,7 +139,7 @@ fn compatibles() {
 
 #[test]
 fn parent_cell_sizes() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let regions = fdt.find_node("/memory").unwrap().reg().unwrap().collect::<std::vec::Vec<_>>();
 
     assert_eq!(
@@ -118,14 +150,14 @@ fn parent_cell_sizes() {
 
 #[test]
 fn no_properties() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let regions = fdt.find_node("/emptyproptest").unwrap();
     assert_eq!(regions.properties().count(), 0);
 }
 
 #[test]
 fn finds_all_nodes() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
 
     let mut all_nodes: std::vec::Vec<_> = fdt.all_nodes().map(|n| n.name).collect();
     all_nodes.sort_unstable();
@@ -167,7 +199,7 @@ fn finds_all_nodes() {
 
 #[test]
 fn required_nodes() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     fdt.cpus().next().unwrap();
     fdt.memory();
     fdt.chosen();
@@ -175,13 +207,13 @@ fn required_nodes() {
 
 #[test]
 fn doesnt_exist() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     assert!(fdt.find_node("/this/doesnt/exist").is_none());
 }
 
 #[test]
 fn raw_reg() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let regions =
         fdt.find_node("/soc/flash").unwrap().raw_reg().unwrap().collect::<std::vec::Vec<_>>();
 
@@ -196,19 +228,19 @@ fn raw_reg() {
 
 #[test]
 fn issue_3() {
-    let fdt = Fdt::new(ISSUE_3).unwrap();
+    let fdt = Fdt::new(ISSUE_3.as_slice()).unwrap();
     fdt.find_all_nodes("uart").for_each(|n| std::println!("{:?}", n));
 }
 
 #[test]
 fn issue_4() {
-    let fdt = Fdt::new(ISSUE_3).unwrap();
+    let fdt = Fdt::new(ISSUE_3.as_slice()).unwrap();
     fdt.all_nodes().for_each(|n| std::println!("{:?}", n));
 }
 
 #[test]
 fn cpus() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     for cpu in fdt.cpus() {
         cpu.ids().all().for_each(|n| std::println!("{:?}", n));
     }
@@ -216,13 +248,13 @@ fn cpus() {
 
 #[test]
 fn invalid_node() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     assert!(fdt.find_node("this/is/an invalid node///////////").is_none());
 }
 
 #[test]
 fn aliases() {
-    let fdt = Fdt::new(SIFIVE).unwrap();
+    let fdt = Fdt::new(SIFIVE.as_slice()).unwrap();
     let aliases = fdt.aliases().unwrap();
     for (_, node_path) in aliases.all() {
         assert!(fdt.find_node(node_path).is_some(), "path: {:?}", node_path);
@@ -231,7 +263,7 @@ fn aliases() {
 
 #[test]
 fn stdout() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let stdout = fdt.chosen().stdout().unwrap();
     assert!(stdout.node().name == "uart@10000000");
     assert!(stdout.params() == Some("115200"));
@@ -239,7 +271,7 @@ fn stdout() {
 
 #[test]
 fn stdin() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let stdin = fdt.chosen().stdin().unwrap();
     assert!(stdin.node().name == "uart@10000000");
     assert!(stdin.params().is_none());
@@ -247,26 +279,26 @@ fn stdin() {
 
 #[test]
 fn node_property_str_value() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let cpu0 = fdt.find_node("/cpus/cpu@0").unwrap();
     assert_eq!(cpu0.property("riscv,isa").unwrap().as_str().unwrap(), "rv64imafdcsu");
 }
 
 #[test]
 fn model_value() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     assert_eq!(fdt.root().model(), "riscv-virtio,qemu");
 }
 
 #[test]
 fn memory_node() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     assert_eq!(fdt.memory().regions().count(), 1);
 }
 
 #[test]
 fn interrupt_cells() {
-    let fdt = Fdt::new(TEST).unwrap();
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let uart = fdt.find_node("/soc/uart").unwrap();
     std::println!("{:?}", uart.parent_interrupt_cells());
     assert_eq!(uart.interrupts().unwrap().collect::<std::vec::Vec<_>>(), std::vec![0xA]);
