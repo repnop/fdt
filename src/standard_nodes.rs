@@ -4,7 +4,7 @@
 
 use crate::{
     node::{CellSizes, FdtNode, NodeProperty},
-    parsing::{BigEndianU32, BigEndianU64, CStr, FdtData},
+    parsing::{BigEndianU32, BigEndianU64, FdtData},
     Fdt,
 };
 
@@ -74,6 +74,10 @@ impl<'b, 'a> StdInOutPath<'b, 'a> {
         Self { node, params }
     }
 
+    pub fn name(&self) -> &'a str {
+        self.node.name
+    }
+
     pub fn node(&self) -> FdtNode<'b, 'a> {
         self.node
     }
@@ -123,7 +127,7 @@ impl<'b, 'a: 'b> Root<'b, 'a> {
 /// Represents the `/aliases` node with specific helper methods
 #[derive(Debug, Clone, Copy)]
 pub struct Aliases<'b, 'a: 'b> {
-    pub(crate) header: &'b Fdt<'a>,
+    pub(crate) header: &'b Fdt<'a, crate::UnalignedParser<'a>>,
     pub(crate) node: FdtNode<'b, 'a>,
 }
 
@@ -178,8 +182,8 @@ impl<'b, 'a: 'b> Cpu<'b, 'a> {
             .find(|p| p.name == "clock-frequency")
             .or_else(|| self.parent.property("clock-frequency"))
             .map(|p| match p.value.len() {
-                4 => BigEndianU32::from_bytes(p.value).unwrap().get() as usize,
-                8 => BigEndianU64::from_bytes(p.value).unwrap().get() as usize,
+                4 => BigEndianU32::from_bytes(p.value).unwrap().to_ne() as usize,
+                8 => BigEndianU64::from_bytes(p.value).unwrap().to_ne() as usize,
                 _ => unreachable!(),
             })
             .expect("clock-frequency is a required property of cpu nodes")
@@ -192,8 +196,8 @@ impl<'b, 'a: 'b> Cpu<'b, 'a> {
             .find(|p| p.name == "timebase-frequency")
             .or_else(|| self.parent.property("timebase-frequency"))
             .map(|p| match p.value.len() {
-                4 => BigEndianU32::from_bytes(p.value).unwrap().get() as usize,
-                8 => BigEndianU64::from_bytes(p.value).unwrap().get() as usize,
+                4 => BigEndianU32::from_bytes(p.value).unwrap().to_ne() as usize,
+                8 => BigEndianU64::from_bytes(p.value).unwrap().to_ne() as usize,
                 _ => unreachable!(),
             })
             .expect("timebase-frequency is a required property of cpu nodes")
@@ -222,8 +226,8 @@ impl<'a> CpuIds<'a> {
     /// The first listed CPU ID, which will always exist
     pub fn first(self) -> usize {
         match self.address_cells {
-            1 => BigEndianU32::from_bytes(self.reg.value).unwrap().get() as usize,
-            2 => BigEndianU64::from_bytes(self.reg.value).unwrap().get() as usize,
+            1 => BigEndianU32::from_bytes(self.reg.value).unwrap().to_ne() as usize,
+            2 => BigEndianU64::from_bytes(self.reg.value).unwrap().to_ne() as usize,
             n => panic!("address-cells of size {} is currently not supported", n),
         }
     }
@@ -234,8 +238,8 @@ impl<'a> CpuIds<'a> {
         core::iter::from_fn(move || match vals.remaining() {
             [] => None,
             _ => Some(match self.address_cells {
-                1 => vals.u32()?.get() as usize,
-                2 => vals.u64()?.get() as usize,
+                1 => vals.u32()?.to_ne() as usize,
+                2 => vals.u64()?.to_ne() as usize,
                 n => panic!("address-cells of size {} is currently not supported", n),
             }),
         })
@@ -251,7 +255,7 @@ pub struct Compatible<'a> {
 impl<'a> Compatible<'a> {
     /// First compatible string
     pub fn first(self) -> &'a str {
-        CStr::new(self.data).expect("expected C str").as_str().unwrap()
+        core::ffi::CStr::from_bytes_until_nul(self.data).expect("expected C str").to_str().unwrap()
     }
 
     /// Returns an iterator over all available compatible strings
@@ -303,9 +307,9 @@ impl<'a> Memory<'_, 'a> {
             let size = stream.u32().expect("size");
 
             mapped_area = Some(MappedArea {
-                effective_address: effective_address.get() as usize,
-                physical_address: physical_address.get() as usize,
-                size: size.get() as usize,
+                effective_address: effective_address.to_ne() as usize,
+                physical_address: physical_address.to_ne() as usize,
+                size: size.to_ne() as usize,
             });
         }
 

@@ -35,7 +35,7 @@
 //!     }
 //!
 //!     if let Some(stdout) = chosen.stdout() {
-//!         println!("It would write stdout to: {}", stdout.node().name);
+//!         println!("It would write stdout to: {}", stdout.name());
 //!     }
 //!
 //!     let soc = fdt.find_node("/soc");
@@ -54,27 +54,35 @@
 #[cfg(test)]
 mod tests;
 
-pub mod node;
+mod nodes;
 mod parsing;
-pub mod standard_nodes;
-
-#[cfg(feature = "pretty-printing")]
 mod pretty_print;
+pub mod properties;
+pub mod standard_nodes;
+mod util;
 
 use node::MemoryReservation;
-use parsing::{BigEndianU32, CStr, FdtData};
+use parsing::{
+    aligned::AlignedParser, unaligned::UnalignedParser, BigEndianU32, FdtData, NoPanic, Panic,
+    PanicMode, ParseError, Parser,
+};
 use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
 
 /// Possible errors when attempting to create an `Fdt`
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub enum FdtError {
     /// The FDT had an invalid magic value
     BadMagic,
     /// The given pointer was null
     BadPtr,
-    /// The slice passed in was too small to fit the given total size of the FDT
-    /// structure
-    BufferTooSmall,
+    /// An error was encountered during parsing
+    ParseError(ParseError),
+}
+
+impl From<ParseError> for FdtError {
+    fn from(value: ParseError) -> Self {
+        Self::ParseError(value)
+    }
 }
 
 impl core::fmt::Display for FdtError {
@@ -82,9 +90,7 @@ impl core::fmt::Display for FdtError {
         match self {
             FdtError::BadMagic => write!(f, "bad FDT magic value"),
             FdtError::BadPtr => write!(f, "an invalid pointer was passed"),
-            FdtError::BufferTooSmall => {
-                write!(f, "the given buffer was too small to contain a FDT header")
-            }
+            FdtError::ParseError(e) => core::fmt::Display::fmt(e, f),
         }
     }
 }
@@ -95,20 +101,23 @@ impl core::fmt::Display for FdtError {
 /// print any useful information, if you would like a best-effort tree print
 /// which looks similar to `dtc`'s output, enable the `pretty-printing` feature
 #[derive(Clone, Copy)]
-pub struct Fdt<'a> {
-    data: &'a [u8],
+pub struct Fdt<'a, P: Parser<'a>, Mode: PanicMode = Panic> {
+    parser: P,
+    strings: &'a [u8],
+    structs: &'a [P::Granularity],
     header: FdtHeader,
+    _mode: core::marker::PhantomData<*mut Mode>,
 }
 
-impl core::fmt::Debug for Fdt<'_> {
+impl<'a, P: Parser<'a>> core::fmt::Debug for Fdt<'a, P> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        #[cfg(feature = "pretty-printing")]
-        pretty_print::print_node(f, self.root().node, 0)?;
+        f.debug_struct("Fdt").finish_non_exhaustive()
+    }
+}
 
-        #[cfg(not(feature = "pretty-printing"))]
-        f.debug_struct("Fdt").finish_non_exhaustive()?;
-
-        Ok(())
+impl<'a, P: Parser<'a>> core::fmt::Display for Fdt<'a, P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        pretty_print::print_node(f, self.root().node, 0)
     }
 }
 
@@ -116,113 +125,144 @@ impl core::fmt::Debug for Fdt<'_> {
 #[repr(C)]
 struct FdtHeader {
     /// FDT header magic
-    magic: BigEndianU32,
+    pub magic: u32,
     /// Total size in bytes of the FDT structure
-    totalsize: BigEndianU32,
+    pub total_size: u32,
     /// Offset in bytes from the start of the header to the structure block
-    off_dt_struct: BigEndianU32,
+    pub structs_offset: u32,
     /// Offset in bytes from the start of the header to the strings block
-    off_dt_strings: BigEndianU32,
+    pub strings_offset: u32,
     /// Offset in bytes from the start of the header to the memory reservation
     /// block
-    off_mem_rsvmap: BigEndianU32,
+    pub memory_reserve_map_offset: u32,
     /// FDT version
-    version: BigEndianU32,
+    pub version: u32,
     /// Last compatible FDT version
-    last_comp_version: BigEndianU32,
+    pub last_compatible_version: u32,
     /// System boot CPU ID
-    boot_cpuid_phys: BigEndianU32,
+    pub boot_cpuid: u32,
     /// Length in bytes of the strings block
-    size_dt_strings: BigEndianU32,
+    pub strings_size: u32,
     /// Length in bytes of the struct block
-    size_dt_struct: BigEndianU32,
+    pub structs_size: u32,
 }
 
 impl FdtHeader {
     fn valid_magic(&self) -> bool {
-        self.magic.get() == 0xd00dfeed
-    }
-
-    fn struct_range(&self) -> core::ops::Range<usize> {
-        let start = self.off_dt_struct.get() as usize;
-        let end = start + self.size_dt_struct.get() as usize;
-
-        start..end
-    }
-
-    fn strings_range(&self) -> core::ops::Range<usize> {
-        let start = self.off_dt_strings.get() as usize;
-        let end = start + self.size_dt_strings.get() as usize;
-
-        start..end
-    }
-
-    fn from_bytes(bytes: &mut FdtData<'_>) -> Option<Self> {
-        Some(Self {
-            magic: bytes.u32()?,
-            totalsize: bytes.u32()?,
-            off_dt_struct: bytes.u32()?,
-            off_dt_strings: bytes.u32()?,
-            off_mem_rsvmap: bytes.u32()?,
-            version: bytes.u32()?,
-            last_comp_version: bytes.u32()?,
-            boot_cpuid_phys: bytes.u32()?,
-            size_dt_strings: bytes.u32()?,
-            size_dt_struct: bytes.u32()?,
-        })
+        self.magic == 0xd00dfeed
     }
 }
 
-impl<'a> Fdt<'a> {
+impl<'a> Fdt<'a, UnalignedParser<'a>, Panic> {
     /// Construct a new `Fdt` from a byte buffer
-    ///
-    /// Note: this function does ***not*** require that the data be 4-byte
-    /// aligned
-    pub fn new(data: &'a [u8]) -> Result<Self, FdtError> {
-        let mut stream = FdtData::new(data);
-        let header = FdtHeader::from_bytes(&mut stream).ok_or(FdtError::BufferTooSmall)?;
+    pub fn new_unaligned(data: &'a [u8]) -> Result<Self, FdtError> {
+        let mut parser = UnalignedParser::new(data);
+        let header = parser.parse_header()?;
+        let strings = &data[header.strings_offset as usize..][..header.strings_size as usize];
+        let structs = &data[header.structs_offset as usize..][..header.structs_size as usize];
 
         if !header.valid_magic() {
             return Err(FdtError::BadMagic);
-        } else if data.len() < header.totalsize.get() as usize {
-            return Err(FdtError::BufferTooSmall);
+        } else if data.len() < header.total_size as usize {
+            return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData));
         }
 
-        Ok(Self { data, header })
+        Ok(Self { header, parser, strings, structs, _mode: core::marker::PhantomData })
     }
 
     /// # Safety
     /// This function performs a read to verify the magic value. If the pointer
     /// is invalid this can result in undefined behavior.
-    ///
-    /// Note: this function does ***not*** require that the data be 4-byte
-    /// aligned
-    pub unsafe fn from_ptr(ptr: *const u8) -> Result<Self, FdtError> {
+    pub unsafe fn from_ptr_unaligned(ptr: *const u8) -> Result<Self, FdtError> {
         if ptr.is_null() {
             return Err(FdtError::BadPtr);
         }
 
         let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
         let real_size =
-            FdtHeader::from_bytes(&mut FdtData::new(tmp_header)).unwrap().totalsize.get() as usize;
+            usize::try_from(UnalignedParser::new(tmp_header).parse_header()?.total_size)
+                .map_err(|_| ParseError::NumericConversionError)?;
+
+        Self::new_unaligned(core::slice::from_raw_parts(ptr, real_size))
+    }
+}
+
+impl<'a> Fdt<'a, AlignedParser<'a>, Panic> {
+    /// Construct a new `Fdt` from a `u32`-aligned buffer
+    pub fn new(data: &'a [u32]) -> Result<Self, FdtError> {
+        let mut parser = AlignedParser::new(data);
+        let header = parser.parse_header()?;
+
+        let strings_start = header.strings_offset as usize;
+        let strings_end = strings_start + header.strings_size as usize;
+        let strings = util::cast_slice(data)
+            .get(strings_start..strings_end)
+            .ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))?;
+
+        let structs_start = header.structs_offset as usize / 4;
+        let structs_end = structs_start + (header.structs_size as usize / 4);
+        let structs = data
+            .get(structs_start..structs_end)
+            .ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))?;
+
+        if !header.valid_magic() {
+            return Err(FdtError::BadMagic);
+        } else if data.len() < header.total_size as usize {
+            return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData));
+        }
+
+        Ok(Self { header, parser, strings, structs, _mode: core::marker::PhantomData })
+    }
+
+    /// # Safety
+    /// This function performs a read to verify the magic value. If the pointer
+    /// is invalid this can result in undefined behavior.
+    pub unsafe fn from_ptr(ptr: *const u32) -> Result<Self, FdtError> {
+        if ptr.is_null() {
+            return Err(FdtError::BadPtr);
+        }
+
+        let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
+        let real_size = usize::try_from(AlignedParser::new(tmp_header).parse_header()?.total_size)
+            .map_err(|_| ParseError::NumericConversionError)?;
 
         Self::new(core::slice::from_raw_parts(ptr, real_size))
     }
+}
 
-    /// Return reference to raw data. This can be used to obtain the original pointer passed to
-    /// [Fdt::from_ptr].
-    ///
-    /// # Example
-    /// ```
-    /// # let fdt_ref: &[u8] = include_bytes!("../dtb/test.dtb");
-    /// # let original_pointer = fdt_ref.as_ptr();
-    /// let fdt = unsafe{fdt::Fdt::from_ptr(original_pointer)}.unwrap();
-    /// assert_eq!(fdt.raw_data().as_ptr(), original_pointer);
-    /// ```
-    pub fn raw_data(&self) -> &'a [u8] {
-        self.data
+impl<'a> Fdt<'a, UnalignedParser<'a>, NoPanic> {
+    /// Construct a new `Fdt` from a byte buffer
+    pub fn new_unaligned_fallible(data: &'a [u8]) -> Result<Self, FdtError> {
+        let Fdt { parser, strings, structs, header, .. } = Fdt::new_unaligned(data)?;
+        Ok(Self { parser, strings, structs, header, _mode: core::marker::PhantomData })
     }
 
+    /// # Safety
+    /// This function performs a read to verify the magic value. If the pointer
+    /// is invalid this can result in undefined behavior.
+    pub unsafe fn from_ptr_unaligned_fallible(ptr: *const u8) -> Result<Self, FdtError> {
+        let Fdt { parser, strings, structs, header, .. } = Fdt::from_ptr_unaligned(ptr)?;
+        Ok(Self { parser, strings, structs, header, _mode: core::marker::PhantomData })
+    }
+}
+
+impl<'a> Fdt<'a, AlignedParser<'a>, NoPanic> {
+    /// Construct a new `Fdt` from a `u32`-aligned buffer which won't panic on invalid data
+    pub fn new_fallible(data: &'a [u32]) -> Result<Self, FdtError> {
+        let Fdt { parser, strings, structs, header, .. } = Fdt::new(data)?;
+        Ok(Self { parser, strings, structs, header, _mode: core::marker::PhantomData })
+    }
+
+    /// # Safety
+    /// This function performs a read to verify the magic value. If the pointer
+    /// is invalid this can result in undefined behavior.
+    pub unsafe fn from_ptr_fallible(ptr: *const u32) -> Result<Self, FdtError> {
+        let Fdt { parser, strings, structs, header, .. } = Fdt::from_ptr(ptr)?;
+        Ok(Self { parser, strings, structs, header, _mode: core::marker::PhantomData })
+    }
+}
+
+impl<'a, P: Parser<'a>, Mode: PanicMode> Fdt<'a, P, Mode> {
     /// Return the `/aliases` node, if one exists
     pub fn aliases(&self) -> Option<Aliases<'_, 'a>> {
         Some(Aliases {
@@ -255,7 +295,7 @@ impl<'a> Fdt<'a> {
 
     /// Returns an iterator over the memory reservations
     pub fn memory_reservations(&self) -> impl Iterator<Item = MemoryReservation> + 'a {
-        let mut stream = FdtData::new(&self.data[self.header.off_mem_rsvmap.get() as usize..]);
+        let mut stream = FdtData::new(&self.data[self.header.off_mem_rsvmap.to_ne() as usize..]);
         let mut done = false;
 
         core::iter::from_fn(move || {
@@ -272,6 +312,20 @@ impl<'a> Fdt<'a> {
 
             Some(res)
         })
+    }
+
+    /// Return reference to raw data. This can be used to obtain the original pointer passed to
+    /// [Fdt::from_ptr].
+    ///
+    /// # Example
+    /// ```
+    /// # let fdt_ref: &[u8] = include_bytes!("../dtb/test.dtb");
+    /// # let original_pointer = fdt_ref.as_ptr();
+    /// let fdt = unsafe{fdt::Fdt::from_ptr(original_pointer)}.unwrap();
+    /// assert_eq!(fdt.raw_data().as_ptr(), original_pointer);
+    /// ```
+    pub fn raw_data(&self) -> &'a [P::Granularity] {
+        self.data
     }
 
     /// Return the root (`/`) node, which is always available
@@ -308,7 +362,7 @@ impl<'a> Fdt<'a> {
         self.all_nodes().find(|n| {
             n.properties()
                 .find(|p| p.name == "phandle")
-                .and_then(|p| Some(BigEndianU32::from_bytes(p.value)?.get() == phandle))
+                .and_then(|p| Some(BigEndianU32::from_bytes(p.value)?.to_ne() == phandle))
                 .unwrap_or(false)
         })
     }
@@ -398,25 +452,26 @@ impl<'a> Fdt<'a> {
                 return None;
             }
 
-            let cstr = CStr::new(block)?;
+            let cstr = core::ffi::CStr::from_bytes_until_nul(block).ok()?;
 
-            block = &block[cstr.len() + 1..];
+            block = &block[cstr.to_bytes().len() + 1..];
 
-            cstr.as_str()
+            cstr.to_str().ok()
         })
     }
 
     /// Total size of the devicetree in bytes
     pub fn total_size(&self) -> usize {
-        self.header.totalsize.get() as usize
+        self.header.totalsize.to_ne() as usize
     }
 
-    fn cstr_at_offset(&self, offset: usize) -> CStr<'a> {
-        CStr::new(&self.strings_block()[offset..]).expect("no null terminating string on C str?")
+    fn cstr_at_offset(&self, offset: usize) -> &'a core::ffi::CStr {
+        core::ffi::CStr::from_bytes_until_nul(&self.strings_block()[offset..])
+            .expect("no null terminating string on C str?")
     }
 
     fn str_at_offset(&self, offset: usize) -> &'a str {
-        self.cstr_at_offset(offset).as_str().expect("not utf-8 cstr")
+        self.cstr_at_offset(offset).to_str().expect("not utf-8 cstr")
     }
 
     fn strings_block(&self) -> &'a [u8] {
