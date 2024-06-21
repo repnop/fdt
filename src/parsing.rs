@@ -79,7 +79,7 @@ impl BigEndianU32 {
     }
 
     pub const fn from_le(n: u32) -> Self {
-        Self(u32::from_le(n))
+        Self(u32::from_le(n).to_be())
     }
 
     pub const fn from_be(n: u32) -> Self {
@@ -109,7 +109,7 @@ impl BigEndianU64 {
     }
 
     pub const fn from_le(n: u64) -> Self {
-        Self(u64::from_le(n))
+        Self(u64::from_le(n).to_be())
     }
 
     pub const fn from_be(n: u64) -> Self {
@@ -138,7 +138,7 @@ impl BigEndianToken {
     pub const END_NODE: Self = Self(BigEndianU32::from_ne(2));
     pub const PROP: Self = Self(BigEndianU32::from_ne(3));
     pub const NOP: Self = Self(BigEndianU32::from_ne(4));
-    pub const END: Self = Self(BigEndianU32::from_ne(5));
+    pub const END: Self = Self(BigEndianU32::from_ne(9));
 }
 
 pub(crate) struct Stream<'a, T: Copy>(&'a [T]);
@@ -167,10 +167,6 @@ impl<'a, T: Copy> Clone for Stream<'a, T> {
     }
 }
 
-mod sealed {
-    pub trait Sealed {}
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum ParseError {
     NumericConversionError,
@@ -185,6 +181,7 @@ impl core::fmt::Display for ParseError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::InvalidCStrValue => write!(f, "cstr was either non-terminated or invalid ASCII"),
+            Self::InvalidPropertyValue => write!(f, "invalid property value"),
             Self::InvalidTokenValue => {
                 write!(f, "encountered invalid FDT token value while parsing")
             }
@@ -202,21 +199,21 @@ impl core::fmt::Display for ParseError {
     }
 }
 
-pub trait ParserForSize: sealed::Sealed {
+pub trait ParserForSize: crate::sealed::Sealed {
     type Parser<'a>: Parser<'a, Granularity = Self>;
 }
 
-impl sealed::Sealed for u8 {}
+impl crate::sealed::Sealed for u8 {}
 impl ParserForSize for u8 {
     type Parser<'a> = UnalignedParser<'a>;
 }
 
-impl sealed::Sealed for u32 {}
+impl crate::sealed::Sealed for u32 {}
 impl ParserForSize for u32 {
     type Parser<'a> = AlignedParser<'a>;
 }
 
-pub trait PanicMode: sealed::Sealed {
+pub trait PanicMode: crate::sealed::Sealed + 'static {
     type Output<T>;
     fn to_output<T>(result: Result<T, ParseError>) -> Self::Output<T>;
     fn transpose<T>(result: Self::Output<Option<T>>) -> Option<Self::Output<T>>;
@@ -228,7 +225,7 @@ pub trait PanicMode: sealed::Sealed {
 
 pub struct NoPanic;
 
-impl sealed::Sealed for NoPanic {}
+impl crate::sealed::Sealed for NoPanic {}
 impl PanicMode for NoPanic {
     type Output<T> = Result<T, ParseError>;
 
@@ -246,7 +243,7 @@ impl PanicMode for NoPanic {
     }
 
     fn ok_as_ref<T>(output: &Self::Output<T>) -> Option<&T> {
-        output.ok().as_ref()
+        output.as_ref().ok()
     }
 
     fn ok<T>(output: Self::Output<T>) -> Option<T> {
@@ -260,7 +257,7 @@ impl PanicMode for NoPanic {
 
 pub struct Panic;
 
-impl sealed::Sealed for Panic {}
+impl crate::sealed::Sealed for Panic {}
 impl PanicMode for Panic {
     type Output<T> = T;
 
@@ -293,7 +290,7 @@ impl PanicMode for Panic {
     }
 }
 
-pub trait Parser<'a>: sealed::Sealed + Clone {
+pub trait Parser<'a>: crate::sealed::Sealed + Clone {
     type Granularity: Copy + ParserForSize;
 
     fn new(data: &'a [Self::Granularity], strings: &'a [u8]) -> Self;
@@ -345,17 +342,70 @@ pub trait Parser<'a>: sealed::Sealed + Clone {
         })
     }
 
-    fn parse_node<Mode: PanicMode>(
+    fn parse_root<Mode: PanicMode>(
         &mut self,
-        parent: Option<&'a RawNode<Self::Granularity>>,
     ) -> Result<Node<'a, Self::Granularity, Mode>, ParseError> {
-        let starting_len = self.data().len();
-        let starting_data = self.data();
-
         match self.advance_token()? {
             BigEndianToken::BEGIN_NODE => {}
             _ => return Err(ParseError::UnexpectedToken),
         }
+
+        let starting_data = self.data();
+
+        match core::mem::size_of::<Self::Granularity>() {
+            1 => {
+                let byte_data = self.byte_data();
+                match byte_data.get(byte_data.len() - 4..).map(<[u8; 4]>::try_from) {
+                    Some(Ok(data @ [_, _, _, _])) => {
+                        match BigEndianToken(BigEndianU32(u32::from_ne_bytes(data))) {
+                            BigEndianToken::END => {}
+                            _ => return Err(ParseError::UnexpectedToken),
+                        }
+                    }
+                    _ => return Err(ParseError::UnexpectedEndOfData),
+                }
+
+                Ok(Node {
+                    this: RawNode::new(&starting_data[..starting_data.len() - 4]),
+                    parent: None,
+                    strings: self.strings(),
+                    _mode: core::marker::PhantomData,
+                })
+            }
+            4 => {
+                let byte_data = self.byte_data();
+                match byte_data.get(byte_data.len() - 4..).map(<[u8; 4]>::try_from) {
+                    Some(Ok(data @ [_, _, _, _])) => {
+                        match BigEndianToken(BigEndianU32(u32::from_ne_bytes(data))) {
+                            BigEndianToken::END => {}
+                            _ => return Err(ParseError::UnexpectedToken),
+                        }
+                    }
+                    _ => return Err(ParseError::UnexpectedEndOfData),
+                }
+
+                Ok(Node {
+                    this: RawNode::new(&starting_data[..starting_data.len() - 1]),
+                    parent: None,
+                    strings: self.strings(),
+                    _mode: core::marker::PhantomData,
+                })
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn parse_node<Mode: PanicMode>(
+        &mut self,
+        parent: Option<&'a RawNode<Self::Granularity>>,
+    ) -> Result<Node<'a, Self::Granularity, Mode>, ParseError> {
+        match self.advance_token()? {
+            BigEndianToken::BEGIN_NODE => {}
+            _ => return Err(ParseError::UnexpectedToken),
+        }
+
+        let starting_data = self.data();
+        let starting_len = starting_data.len();
 
         self.advance_cstr()?;
 
@@ -375,6 +425,7 @@ pub trait Parser<'a>: sealed::Sealed + Clone {
                         continue;
                     }
                 },
+                _ => return Err(ParseError::InvalidTokenValue),
             }
 
             self.advance_cstr()?;

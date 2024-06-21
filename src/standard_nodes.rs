@@ -3,54 +3,75 @@
 // obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::{
-    node::{CellSizes, FdtNode, NodeProperty},
-    parsing::{BigEndianU32, BigEndianU64, FdtData},
-    Fdt,
+    nodes::{IntoSearchableNodeName, Node, NodeName, RawNode, SearchableNodeName},
+    parsing::{
+        BigEndianToken, BigEndianU32, BigEndianU64, FdtData, Panic, PanicMode, ParseError, Parser,
+        ParserForSize,
+    },
+    properties::CellSizes,
+    tryblock, Fdt,
 };
 
 /// Represents the `/chosen` node with specific helper methods
-#[derive(Debug, Clone, Copy)]
-pub struct Chosen<'b, 'a: 'b> {
-    pub(crate) node: FdtNode<'b, 'a>,
+pub struct Chosen<'a, Granularity = u32, Mode = Panic>
+where
+    Granularity: ParserForSize,
+    Mode: PanicMode,
+{
+    pub(crate) node: Node<'a, Granularity, Mode>,
 }
 
-impl<'b, 'a: 'b> Chosen<'b, 'a> {
+impl<'a, Granularity, Mode> Chosen<'a, Granularity, Mode>
+where
+    Granularity: ParserForSize,
+    Mode: PanicMode,
+{
     /// Contains the bootargs, if they exist
-    pub fn bootargs(self) -> Option<&'a str> {
-        self.node
-            .properties()
-            .find(|n| n.name == "bootargs")
-            .and_then(|n| core::str::from_utf8(&n.value[..n.value.len() - 1]).ok())
+    #[track_caller]
+    pub fn bootargs(self) -> Mode::Output<Option<&'a str>> {
+        <Mode as PanicMode>::to_output(crate::tryblock! {
+            Ok(
+                <Mode as PanicMode>::to_result(self.node.properties())?
+                    .into_iter()
+                    .find(|n| n.name() == "bootargs")
+                    .and_then(|n| {
+                        core::str::from_utf8(&n.value()[..n.value().len() - 1]).ok()
+                    })
+            )
+        })
     }
 
     /// Searches for the node representing `stdout`, if the property exists,
     /// attempting to resolve aliases if the node name doesn't exist as-is
-    pub fn stdout(self) -> Option<StdInOutPath<'b, 'a>> {
-        self.node
-            .properties()
-            .find(|n| n.name == "stdout-path")
-            .and_then(|n| core::str::from_utf8(&n.value[..n.value.len() - 1]).ok())
-            .map(Self::split_stdinout_property)
-            .and_then(|(name, params)| {
-                self.node.header.find_node(name).map(|node| StdInOutPath::new(node, params))
-            })
-    }
+    // pub fn stdout(self) -> Mode::Output<Option<StdInOutPath<'a, Granularity, Mode>>> {
+    //     <Mode as PanicMode>::to_output(crate::tryblock! {
+    //         Ok(
+    //             <Mode as PanicMode>::to_result(self.node.properties())?
+    //                 .find(|n| n.name == "stdout-path")
+    //                 .and_then(|n| core::str::from_utf8(&n.value()[..n.value().len() - 1]).ok())
+    //                 .map(Self::split_stdinout_property)
+    //                 .and_then(|(name, params)| {
+    //                     self.node..find_node(name).map(|node| StdInOutPath::new(node, params))
+    //                 })
+    //         )
+    //     })
+    // }
 
     /// Searches for the node representing `stdout`, if the property exists,
     /// attempting to resolve aliases if the node name doesn't exist as-is. If
     /// no `stdin` property exists, but `stdout` is present, it will return the
     /// node specified by the `stdout` property.
-    pub fn stdin(self) -> Option<StdInOutPath<'b, 'a>> {
-        self.node
-            .properties()
-            .find(|n| n.name == "stdin-path")
-            .and_then(|n| core::str::from_utf8(&n.value[..n.value.len() - 1]).ok())
-            .map(Self::split_stdinout_property)
-            .and_then(|(name, params)| {
-                self.node.header.find_node(name).map(|node| StdInOutPath::new(node, params))
-            })
-            .or_else(|| self.stdout())
-    }
+    // pub fn stdin(self) -> Option<StdInOutPath<'b, 'a>> {
+    //     self.node
+    //         .properties()
+    //         .find(|n| n.name == "stdin-path")
+    //         .and_then(|n| core::str::from_utf8(&n.value[..n.value.len() - 1]).ok())
+    //         .map(Self::split_stdinout_property)
+    //         .and_then(|(name, params)| {
+    //             self.node.header.find_node(name).map(|node| StdInOutPath::new(node, params))
+    //         })
+    //         .or_else(|| self.stdout())
+    // }
 
     /// Splits a stdout-path or stdin-path property into its node path and optional parameters which are seperated by a colon ':'.
     /// see https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node
@@ -64,187 +85,344 @@ impl<'b, 'a: 'b> Chosen<'b, 'a> {
     }
 }
 
-pub struct StdInOutPath<'b, 'a> {
-    pub(crate) node: FdtNode<'b, 'a>,
+impl<Granularity: ParserForSize, Mode: PanicMode> Clone for Chosen<'_, Granularity, Mode> {
+    fn clone(&self) -> Self {
+        Self { node: self.node }
+    }
+}
+
+impl<Granularity: ParserForSize, Mode: PanicMode> Copy for Chosen<'_, Granularity, Mode> {}
+
+pub struct StdInOutPath<'a, Granularity: ParserForSize = u32, Mode: PanicMode = Panic> {
+    pub(crate) node: Node<'a, Granularity, Mode>,
     pub(crate) params: Option<&'a str>,
 }
 
-impl<'b, 'a> StdInOutPath<'b, 'a> {
-    fn new(node: FdtNode<'b, 'a>, params: Option<&'a str>) -> Self {
-        Self { node, params }
-    }
+// impl<'b, 'a> StdInOutPath<'b, 'a> {
+// fn new(node: FdtNode<'b, 'a>, params: Option<&'a str>) -> Self {
+//     Self { node, params }
+// }
 
-    pub fn name(&self) -> &'a str {
-        self.node.name
-    }
+// pub fn name(&self) -> &'a str {
+//     self.node.name
+// }
 
-    pub fn node(&self) -> FdtNode<'b, 'a> {
-        self.node
-    }
+// pub fn node(&self) -> FdtNode<'b, 'a> {
+//     self.node
+// }
 
-    pub fn params(&self) -> Option<&'a str> {
-        self.params
-    }
-}
+// pub fn params(&self) -> Option<&'a str> {
+//     self.params
+// }
+// }
 
 /// Represents the root (`/`) node with specific helper methods
-#[derive(Debug, Clone, Copy)]
-pub struct Root<'b, 'a: 'b> {
-    pub(crate) node: FdtNode<'b, 'a>,
+pub struct Root<'a, Granularity: ParserForSize = u32, Mode: PanicMode = Panic> {
+    pub(crate) node: Node<'a, Granularity, Mode>,
 }
 
-impl<'b, 'a: 'b> Root<'b, 'a> {
+impl<'a, Granularity: ParserForSize, Mode: PanicMode> Root<'a, Granularity, Mode> {
     /// Root node cell sizes
-    pub fn cell_sizes(self) -> CellSizes {
-        self.node.cell_sizes()
+    pub fn cell_sizes(self) -> <Mode as PanicMode>::Output<CellSizes> {
+        <Mode as PanicMode>::transpose(self.node.property::<CellSizes>()).unwrap()
     }
 
     /// `model` property
-    pub fn model(self) -> &'a str {
-        self.node
-            .properties()
-            .find(|p| p.name == "model")
-            .and_then(|p| core::str::from_utf8(p.value).map(|s| s.trim_end_matches('\0')).ok())
-            .unwrap()
-    }
+    // pub fn model(self) -> &'a str {
+    //     self.node
+    //         .properties()
+    //         .find(|p| p.name == "model")
+    //         .and_then(|p| core::str::from_utf8(p.value).map(|s| s.trim_end_matches('\0')).ok())
+    //         .unwrap()
+    // }
 
     /// `compatible` property
-    pub fn compatible(self) -> Compatible<'a> {
-        self.node.compatible().unwrap()
-    }
+    // pub fn compatible(self) -> Compatible<'a> {
+    //     self.node.compatible().unwrap()
+    // }
 
     /// Returns an iterator over all of the available properties
-    pub fn properties(self) -> impl Iterator<Item = NodeProperty<'a>> + 'b {
-        self.node.properties()
-    }
+    // pub fn properties(self) -> impl Iterator<Item = NodeProperty<'a>> + 'a {
+    //     self.node.properties()
+    // }
 
     /// Attempts to find the a property by its name
-    pub fn property(self, name: &str) -> Option<NodeProperty<'a>> {
-        self.node.properties().find(|p| p.name == name)
-    }
-}
+    // pub fn property(self, name: &str) -> Option<NodeProperty<'a>> {
+    //     self.node.properties().find(|p| p.name == name)
+    // }
 
-/// Represents the `/aliases` node with specific helper methods
-#[derive(Debug, Clone, Copy)]
-pub struct Aliases<'b, 'a: 'b> {
-    pub(crate) header: &'b Fdt<'a, crate::UnalignedParser<'a>>,
-    pub(crate) node: FdtNode<'b, 'a>,
-}
+    pub fn find_node<'b, N: IntoSearchableNodeName<'b>>(
+        self,
+        name: N,
+    ) -> <Mode as PanicMode>::Output<Option<Node<'a, Granularity, Mode>>> {
+        let name = name.into_searchable_node_name();
 
-impl<'b, 'a: 'b> Aliases<'b, 'a> {
-    /// Attempt to resolve an alias to a node name
-    pub fn resolve(self, alias: &str) -> Option<&'a str> {
-        self.node
-            .properties()
-            .find(|p| p.name == alias)
-            .and_then(|p| core::str::from_utf8(p.value).map(|s| s.trim_end_matches('\0')).ok())
-    }
+        if let SearchableNodeName::Base("/") = name {
+            return <Mode as PanicMode>::to_output(Ok(Some(self.node)));
+        }
 
-    /// Attempt to find the node specified by the given alias
-    pub fn resolve_node(self, alias: &str) -> Option<FdtNode<'b, 'a>> {
-        self.resolve(alias).and_then(|name| self.header.find_node(name))
-    }
+        let (name_str, unit_address) = match name {
+            SearchableNodeName::Base(s) => (s, None),
+            SearchableNodeName::WithUnitAddress(NodeName { name, unit_address }) => {
+                (name, unit_address)
+            }
+        };
 
-    /// Returns an iterator over all of the available aliases
-    pub fn all(self) -> impl Iterator<Item = (&'a str, &'a str)> + 'b {
-        self.node.properties().filter_map(|p| {
-            Some((p.name, core::str::from_utf8(p.value).map(|s| s.trim_end_matches('\0')).ok()?))
-        })
-    }
-}
+        let mut children_iter = match <Mode as PanicMode>::to_result(self.node.children()) {
+            Ok(iter) => iter,
+            Err(e) => return <Mode as PanicMode>::to_output(Err(e)),
+        };
 
-/// Represents a `/cpus/cpu*` node with specific helper methods
-#[derive(Debug, Clone, Copy)]
-pub struct Cpu<'b, 'a: 'b> {
-    pub(crate) parent: FdtNode<'b, 'a>,
-    pub(crate) node: FdtNode<'b, 'a>,
-}
+        let mut name_components = name_str.trim_start_matches('/').split('/').peekable();
+        loop {
+            if name_components.peek().is_none() {
+                return <Mode as PanicMode>::to_output(Ok(None));
+            }
 
-impl<'b, 'a: 'b> Cpu<'b, 'a> {
-    /// Return the IDs for the given CPU
-    pub fn ids(self) -> CpuIds<'a> {
-        let address_cells = self.node.parent_cell_sizes().address_cells;
+            let component = name_components.next().unwrap();
+            let is_last_component = name_components.peek().is_none();
+            let look_for_name = match is_last_component {
+                true => NodeName { name: component, unit_address },
+                false => NodeName { name: component, unit_address: None },
+            };
 
-        CpuIds {
-            reg: self
-                .node
-                .properties()
-                .find(|p| p.name == "reg")
-                .expect("reg is a required property of cpu nodes"),
-            address_cells,
+            match <Mode as PanicMode>::to_result(children_iter.find(look_for_name)) {
+                Ok(Some(node)) => match is_last_component {
+                    true => return <Mode as PanicMode>::to_output(Ok(Some(node))),
+                    false => {
+                        children_iter = match <Mode as PanicMode>::to_result(node.children()) {
+                            Ok(iter) => iter,
+                            Err(e) => return <Mode as PanicMode>::to_output(Err(e)),
+                        }
+                    }
+                },
+                Ok(None) => return <Mode as PanicMode>::to_output(Ok(None)),
+                Err(e) => return <Mode as PanicMode>::to_output(Err(e)),
+            }
         }
     }
 
-    /// `clock-frequency` property
-    pub fn clock_frequency(self) -> usize {
-        self.node
-            .properties()
-            .find(|p| p.name == "clock-frequency")
-            .or_else(|| self.parent.property("clock-frequency"))
-            .map(|p| match p.value.len() {
-                4 => BigEndianU32::from_bytes(p.value).unwrap().to_ne() as usize,
-                8 => BigEndianU64::from_bytes(p.value).unwrap().to_ne() as usize,
-                _ => unreachable!(),
-            })
-            .expect("clock-frequency is a required property of cpu nodes")
-    }
+    pub fn all_nodes(self) -> <Mode as PanicMode>::Output<AllNodesIterator<'a, Granularity, Mode>> {
+        let mut parser = <<Granularity as ParserForSize>::Parser<'a> as Parser<'a>>::new(
+            self.node.this.as_slice(),
+            self.node.strings.0,
+        );
+        let res = tryblock!({
+            parser.advance_cstr().unwrap();
 
-    /// `timebase-frequency` property
-    pub fn timebase_frequency(self) -> usize {
-        self.node
-            .properties()
-            .find(|p| p.name == "timebase-frequency")
-            .or_else(|| self.parent.property("timebase-frequency"))
-            .map(|p| match p.value.len() {
-                4 => BigEndianU32::from_bytes(p.value).unwrap().to_ne() as usize,
-                8 => BigEndianU64::from_bytes(p.value).unwrap().to_ne() as usize,
-                _ => unreachable!(),
-            })
-            .expect("timebase-frequency is a required property of cpu nodes")
-    }
+            while parser.peek_token().unwrap() == BigEndianToken::PROP {
+                parser.parse_raw_property().unwrap();
+            }
 
-    /// Returns an iterator over all of the properties for the CPU node
-    pub fn properties(self) -> impl Iterator<Item = NodeProperty<'a>> + 'b {
-        self.node.properties()
-    }
+            Ok(())
+        });
 
-    /// Attempts to find the a property by its name
-    pub fn property(self, name: &str) -> Option<NodeProperty<'a>> {
-        self.node.properties().find(|p| p.name == name)
-    }
-}
-
-/// Represents the value of the `reg` property of a `/cpus/cpu*` node which may
-/// contain more than one CPU or thread ID
-#[derive(Debug, Clone, Copy)]
-pub struct CpuIds<'a> {
-    pub(crate) reg: NodeProperty<'a>,
-    pub(crate) address_cells: usize,
-}
-
-impl<'a> CpuIds<'a> {
-    /// The first listed CPU ID, which will always exist
-    pub fn first(self) -> usize {
-        match self.address_cells {
-            1 => BigEndianU32::from_bytes(self.reg.value).unwrap().to_ne() as usize,
-            2 => BigEndianU64::from_bytes(self.reg.value).unwrap().to_ne() as usize,
-            n => panic!("address-cells of size {} is currently not supported", n),
+        if let Err(e) = res {
+            return <Mode as PanicMode>::to_output(Err(e));
         }
-    }
 
-    /// Returns an iterator over all of the listed CPU IDs
-    pub fn all(self) -> impl Iterator<Item = usize> + 'a {
-        let mut vals = FdtData::new(self.reg.value);
-        core::iter::from_fn(move || match vals.remaining() {
-            [] => None,
-            _ => Some(match self.address_cells {
-                1 => vals.u32()?.to_ne() as usize,
-                2 => vals.u64()?.to_ne() as usize,
-                n => panic!("address-cells of size {} is currently not supported", n),
-            }),
-        })
+        <Mode as PanicMode>::to_output(Ok(AllNodesIterator {
+            parser,
+            parents: [&[]; 16],
+            parent_index: 0,
+            _mode: core::marker::PhantomData,
+        }))
     }
 }
+
+impl<'a, Granularity: ParserForSize, Mode: PanicMode> core::fmt::Debug
+    for Root<'a, Granularity, Mode>
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Root").finish_non_exhaustive()
+    }
+}
+
+pub struct AllNodesIterator<'a, Granularity: ParserForSize, Mode: PanicMode> {
+    parser: <Granularity as ParserForSize>::Parser<'a>,
+    parents: [&'a [Granularity]; 16],
+    parent_index: usize,
+    _mode: core::marker::PhantomData<*mut Mode>,
+}
+
+impl<'a, Granularity: ParserForSize, Mode: PanicMode> Iterator
+    for AllNodesIterator<'a, Granularity, Mode>
+{
+    type Item = <Mode as PanicMode>::Output<Node<'a, Granularity, Mode>>;
+
+    #[track_caller]
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Ok(BigEndianToken::END_NODE) = self.parser.peek_token() {
+            let _ = self.parser.advance_token();
+        }
+
+        match self.parser.advance_token() {
+            Ok(BigEndianToken::BEGIN_NODE) => {}
+            Ok(BigEndianToken::END_NODE) => {}
+            Ok(BigEndianToken::END) | Err(ParseError::UnexpectedEndOfData) => return None,
+            Ok(_) => return Some(<Mode as PanicMode>::to_output(Err(ParseError::UnexpectedToken))),
+            Err(e) => return Some(<Mode as PanicMode>::to_output(Err(e))),
+        }
+
+        let starting_data = self.parser.data();
+
+        match self.parents.get_mut(self.parent_index) {
+            Some(idx) => *idx = starting_data,
+            // FIXME: what makes sense for this to return?
+            None => return None,
+        }
+        self.parent_index += 1;
+
+        let node = Some(<Mode as PanicMode>::to_output(Ok(Node {
+            this: RawNode::new(starting_data),
+            parent: self
+                .parent_index
+                .checked_sub(1)
+                .and_then(|idx| self.parents.get(idx))
+                .map(|parent| RawNode::new(*parent)),
+            strings: self.parser.strings(),
+            _mode: core::marker::PhantomData,
+        })));
+
+        let res = tryblock!({
+            self.parser.advance_cstr()?;
+
+            while self.parser.peek_token()? == BigEndianToken::PROP {
+                self.parser.parse_raw_property()?;
+            }
+
+            Ok(())
+        });
+
+        if let Err(e) = res {
+            return Some(<Mode as PanicMode>::to_output(Err(e)));
+        }
+
+        node
+    }
+}
+
+// /// Represents the `/aliases` node with specific helper methods
+// #[derive(Debug, Clone, Copy)]
+// pub struct Aliases<'b, 'a: 'b> {
+//     pub(crate) header: &'b Fdt<'a, crate::UnalignedParser<'a>>,
+//     pub(crate) node: FdtNode<'b, 'a>,
+// }
+
+// impl<'b, 'a: 'b> Aliases<'b, 'a> {
+//     /// Attempt to resolve an alias to a node name
+//     pub fn resolve(self, alias: &str) -> Option<&'a str> {
+//         self.node
+//             .properties()
+//             .find(|p| p.name == alias)
+//             .and_then(|p| core::str::from_utf8(p.value).map(|s| s.trim_end_matches('\0')).ok())
+//     }
+
+//     /// Attempt to find the node specified by the given alias
+//     pub fn resolve_node(self, alias: &str) -> Option<FdtNode<'b, 'a>> {
+//         self.resolve(alias).and_then(|name| self.header.find_node(name))
+//     }
+
+//     /// Returns an iterator over all of the available aliases
+//     pub fn all(self) -> impl Iterator<Item = (&'a str, &'a str)> + 'b {
+//         self.node.properties().filter_map(|p| {
+//             Some((p.name, core::str::from_utf8(p.value).map(|s| s.trim_end_matches('\0')).ok()?))
+//         })
+//     }
+// }
+
+// /// Represents a `/cpus/cpu*` node with specific helper methods
+// #[derive(Debug, Clone, Copy)]
+// pub struct Cpu<'b, 'a: 'b> {
+//     pub(crate) parent: FdtNode<'b, 'a>,
+//     pub(crate) node: FdtNode<'b, 'a>,
+// }
+
+// impl<'b, 'a: 'b> Cpu<'b, 'a> {
+//     /// Return the IDs for the given CPU
+//     pub fn ids(self) -> CpuIds<'a> {
+//         let address_cells = self.node.parent_cell_sizes().address_cells;
+
+//         CpuIds {
+//             reg: self
+//                 .node
+//                 .properties()
+//                 .find(|p| p.name == "reg")
+//                 .expect("reg is a required property of cpu nodes"),
+//             address_cells,
+//         }
+//     }
+
+//     /// `clock-frequency` property
+//     pub fn clock_frequency(self) -> usize {
+//         self.node
+//             .properties()
+//             .find(|p| p.name == "clock-frequency")
+//             .or_else(|| self.parent.property("clock-frequency"))
+//             .map(|p| match p.value.len() {
+//                 4 => BigEndianU32::from_bytes(p.value).unwrap().to_ne() as usize,
+//                 8 => BigEndianU64::from_bytes(p.value).unwrap().to_ne() as usize,
+//                 _ => unreachable!(),
+//             })
+//             .expect("clock-frequency is a required property of cpu nodes")
+//     }
+
+//     /// `timebase-frequency` property
+//     pub fn timebase_frequency(self) -> usize {
+//         self.node
+//             .properties()
+//             .find(|p| p.name == "timebase-frequency")
+//             .or_else(|| self.parent.property("timebase-frequency"))
+//             .map(|p| match p.value.len() {
+//                 4 => BigEndianU32::from_bytes(p.value).unwrap().to_ne() as usize,
+//                 8 => BigEndianU64::from_bytes(p.value).unwrap().to_ne() as usize,
+//                 _ => unreachable!(),
+//             })
+//             .expect("timebase-frequency is a required property of cpu nodes")
+//     }
+
+//     /// Returns an iterator over all of the properties for the CPU node
+//     pub fn properties(self) -> impl Iterator<Item = NodeProperty<'a>> + 'b {
+//         self.node.properties()
+//     }
+
+//     /// Attempts to find the a property by its name
+//     pub fn property(self, name: &str) -> Option<NodeProperty<'a>> {
+//         self.node.properties().find(|p| p.name == name)
+//     }
+// }
+
+// /// Represents the value of the `reg` property of a `/cpus/cpu*` node which may
+// /// contain more than one CPU or thread ID
+// #[derive(Debug, Clone, Copy)]
+// pub struct CpuIds<'a> {
+//     pub(crate) reg: NodeProperty<'a>,
+//     pub(crate) address_cells: usize,
+// }
+
+// impl<'a> CpuIds<'a> {
+//     /// The first listed CPU ID, which will always exist
+//     pub fn first(self) -> usize {
+//         match self.address_cells {
+//             1 => BigEndianU32::from_bytes(self.reg.value).unwrap().to_ne() as usize,
+//             2 => BigEndianU64::from_bytes(self.reg.value).unwrap().to_ne() as usize,
+//             n => panic!("address-cells of size {} is currently not supported", n),
+//         }
+//     }
+
+//     /// Returns an iterator over all of the listed CPU IDs
+//     pub fn all(self) -> impl Iterator<Item = usize> + 'a {
+//         let mut vals = FdtData::new(self.reg.value);
+//         core::iter::from_fn(move || match vals.remaining() {
+//             [] => None,
+//             _ => Some(match self.address_cells {
+//                 1 => vals.u32()?.to_ne() as usize,
+//                 2 => vals.u64()?.to_ne() as usize,
+//                 n => panic!("address-cells of size {} is currently not supported", n),
+//             }),
+//         })
+//     }
+// }
 
 /// Represents the `compatible` property of a node
 #[derive(Clone, Copy)]
@@ -285,37 +463,37 @@ impl<'a> Compatible<'a> {
 }
 
 /// Represents the `/memory` node with specific helper methods
-#[derive(Debug, Clone, Copy)]
-pub struct Memory<'b, 'a: 'b> {
-    pub(crate) node: FdtNode<'b, 'a>,
-}
+// #[derive(Debug, Clone, Copy)]
+// pub struct Memory<'b, 'a: 'b> {
+//     pub(crate) node: FdtNode<'b, 'a>,
+// }
 
-impl<'a> Memory<'_, 'a> {
-    /// Returns an iterator over all of the available memory regions
-    pub fn regions(&self) -> impl Iterator<Item = MemoryRegion> + 'a {
-        self.node.reg().unwrap()
-    }
+// impl<'a> Memory<'_, 'a> {
+//     /// Returns an iterator over all of the available memory regions
+//     pub fn regions(&self) -> impl Iterator<Item = MemoryRegion> + 'a {
+//         self.node.reg().unwrap()
+//     }
 
-    /// Returns the initial mapped area, if it exists
-    pub fn initial_mapped_area(&self) -> Option<MappedArea> {
-        let mut mapped_area = None;
+//     /// Returns the initial mapped area, if it exists
+//     pub fn initial_mapped_area(&self) -> Option<MappedArea> {
+//         let mut mapped_area = None;
 
-        if let Some(init_mapped_area) = self.node.property("initial_mapped_area") {
-            let mut stream = FdtData::new(init_mapped_area.value);
-            let effective_address = stream.u64().expect("effective address");
-            let physical_address = stream.u64().expect("physical address");
-            let size = stream.u32().expect("size");
+//         if let Some(init_mapped_area) = self.node.property("initial_mapped_area") {
+//             let mut stream = FdtData::new(init_mapped_area.value);
+//             let effective_address = stream.u64().expect("effective address");
+//             let physical_address = stream.u64().expect("physical address");
+//             let size = stream.u32().expect("size");
 
-            mapped_area = Some(MappedArea {
-                effective_address: effective_address.to_ne() as usize,
-                physical_address: physical_address.to_ne() as usize,
-                size: size.to_ne() as usize,
-            });
-        }
+//             mapped_area = Some(MappedArea {
+//                 effective_address: effective_address.to_ne() as usize,
+//                 physical_address: physical_address.to_ne() as usize,
+//                 size: size.to_ne() as usize,
+//             });
+//         }
 
-        mapped_area
-    }
-}
+//         mapped_area
+//     }
+// }
 
 /// An area described by the `initial-mapped-area` property of the `/memory`
 /// node
