@@ -1,16 +1,51 @@
 use crate::{
-    parsing::{BigEndianToken, Panic, PanicMode, ParseError, Parser, ParserForSize, StringsBlock},
+    parsing::{
+        self, BigEndianToken, Panic, PanicMode, ParseError, Parser, ParserForSize, StringsBlock,
+    },
     properties::Property,
 };
 
+#[macro_export]
+#[doc(hidden)]
 macro_rules! tryblock {
     ($($ts:tt)+) => {{
-        (|| -> Result<_, ParseError> {
+        (|| -> Result<_, $crate::parsing::ParseError> {
             $($ts)+
         })()
     }};
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum SearchableNodeName<'a> {
+    Base(&'a str),
+    WithUnitAddress(NodeName<'a>),
+}
+
+pub trait IntoSearchableNodeName<'a>: Sized + crate::sealed::Sealed {
+    fn into_searchable_node_name(self) -> SearchableNodeName<'a>;
+}
+
+impl crate::sealed::Sealed for NodeName<'_> {}
+impl<'a> IntoSearchableNodeName<'a> for NodeName<'a> {
+    fn into_searchable_node_name(self) -> SearchableNodeName<'a> {
+        SearchableNodeName::WithUnitAddress(self)
+    }
+}
+
+impl crate::sealed::Sealed for &'_ str {}
+impl<'a> IntoSearchableNodeName<'a> for &'a str {
+    fn into_searchable_node_name(self) -> SearchableNodeName<'a> {
+        match self.split_once('@') {
+            Some((base, unit_address)) => SearchableNodeName::WithUnitAddress(NodeName {
+                name: base,
+                unit_address: Some(unit_address),
+            }),
+            None => SearchableNodeName::Base(self),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NodeName<'a> {
     pub name: &'a str,
     pub unit_address: Option<&'a str>,
@@ -22,11 +57,20 @@ impl<'a> NodeName<'a> {
     }
 }
 
+impl core::fmt::Display for NodeName<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.unit_address {
+            Some(ua) => write!(f, "{}@{}", self.name, ua),
+            None => write!(f, "{}", self.name),
+        }
+    }
+}
+
 pub struct Node<'a, Granularity: ParserForSize = u32, Mode: PanicMode = Panic> {
-    this: &'a RawNode<Granularity>,
-    parent: Option<&'a RawNode<Granularity>>,
-    strings: StringsBlock<'a>,
-    _mode: core::marker::PhantomData<*mut Mode>,
+    pub(crate) this: &'a RawNode<Granularity>,
+    pub(crate) parent: Option<&'a RawNode<Granularity>>,
+    pub(crate) strings: StringsBlock<'a>,
+    pub(crate) _mode: core::marker::PhantomData<*mut Mode>,
 }
 
 impl<'a, Granularity: ParserForSize, Mode: PanicMode> Node<'a, Granularity, Mode> {
@@ -49,6 +93,10 @@ impl<'a, Granularity: ParserForSize, Mode: PanicMode> Node<'a, Granularity, Mode
             .advance_cstr()
             .and_then(|s| s.to_str().map_err(|_| ParseError::InvalidCStrValue))
             .map(|s| {
+                if s.is_empty() {
+                    return NodeName { name: "/", unit_address: None };
+                }
+
                 let (name, unit_address) = s.split_once('@').unzip();
                 NodeName { name: name.unwrap_or(s), unit_address }
             }),
@@ -81,9 +129,7 @@ impl<'a, Granularity: ParserForSize, Mode: PanicMode> Node<'a, Granularity, Mode
     }
 
     pub fn property<P: Property<'a>>(&self) -> <Mode as PanicMode>::Output<Option<P>> {
-        <Mode as PanicMode>::to_output(tryblock! {
-            <Mode as PanicMode>::to_result(self.raw_property(P::NAME))?.map(|prop| P::parse(*self, prop)).transpose()
-        })
+        <Mode as PanicMode>::to_output(P::parse(*self))
     }
 
     #[inline]
@@ -116,6 +162,24 @@ impl<'a, Granularity: ParserForSize, Mode: PanicMode> Node<'a, Granularity, Mode
     }
 }
 
+impl<'a, Granularity: ParserForSize, Mode: PanicMode> core::fmt::Debug
+    for Node<'a, Granularity, Mode>
+where
+    <Mode as PanicMode>::Output<NodeName<'a>>: core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Node").field("name", &self.name()).finish_non_exhaustive()
+    }
+}
+
+impl<'a, Granularity: ParserForSize, Mode: PanicMode> Clone for Node<'a, Granularity, Mode> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'a, Granularity: ParserForSize, Mode: PanicMode> Copy for Node<'a, Granularity, Mode> {}
+
 #[repr(transparent)]
 pub(crate) struct RawNode<Granularity: ParserForSize = u32>([Granularity]);
 
@@ -124,9 +188,14 @@ impl<Granularity: ParserForSize> RawNode<Granularity> {
         // SAFETY: the representation of `Self` and `data` are the same
         unsafe { core::mem::transmute(data) }
     }
+
+    pub(crate) fn as_slice(&self) -> &[Granularity] {
+        // SAFETY: the representation of `Self` and `data` are the same
+        unsafe { core::mem::transmute(self) }
+    }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct NodeProperties<'a, Granularity: ParserForSize = u32, Mode: PanicMode = Panic> {
     data: &'a [Granularity],
     strings: StringsBlock<'a>,
@@ -143,6 +212,16 @@ impl<'a, Granularity: ParserForSize, Mode: PanicMode> NodeProperties<'a, Granula
             self.data,
             self.strings.0,
         );
+
+        match parser.peek_token() {
+            Ok(BigEndianToken::PROP) => {}
+            Ok(BigEndianToken::BEGIN_NODE) => return <Mode as PanicMode>::to_output(Ok(None)),
+            Ok(_) => return <Mode as PanicMode>::to_output(Err(ParseError::UnexpectedToken)),
+            Err(ParseError::UnexpectedEndOfData) => {
+                return <Mode as PanicMode>::to_output(Ok(None))
+            }
+            Err(e) => return <Mode as PanicMode>::to_output(Err(e)),
+        }
 
         <Mode as PanicMode>::to_output(tryblock! {
             match parser.parse_raw_property() {
@@ -163,6 +242,14 @@ impl<'a, Granularity: ParserForSize, Mode: PanicMode> NodeProperties<'a, Granula
         }))
     }
 }
+
+impl<Granularity: ParserForSize, Mode: PanicMode> Clone for NodeProperties<'_, Granularity, Mode> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<Granularity: ParserForSize, Mode: PanicMode> Copy for NodeProperties<'_, Granularity, Mode> {}
 
 impl<'a, Granularity: ParserForSize, Mode: PanicMode> IntoIterator
     for NodeProperties<'a, Granularity, Mode>
@@ -197,7 +284,10 @@ pub trait Value<'a>: Sized {
 
 impl<'a> Value<'a> for u32 {
     fn parse(value: &'a [u8]) -> Option<Self> {
-        unsafe { core::ptr::read_unaligned(value.as_ptr().cast()) }
+        match value {
+            [a, b, c, d, ..] => Some(u32::from_be_bytes([*a, *b, *c, *d])),
+            _ => None,
+        }
     }
 }
 
@@ -219,10 +309,11 @@ impl<'a> NodeProperty<'a> {
         self.value
     }
 
-    pub fn to<V: Value<'a>>(&self) -> Option<V> {}
+    pub fn to<V: Value<'a>>(&self) -> Option<V> {
+        V::parse(self.value)
+    }
 }
 
-#[derive(Clone, Copy)]
 pub struct NodeChildren<'a, Granularity: ParserForSize = u32, Mode: PanicMode = Panic> {
     data: &'a [Granularity],
     parent: &'a RawNode<Granularity>,
@@ -241,38 +332,64 @@ impl<'a, Granularity: ParserForSize, Mode: PanicMode> NodeChildren<'a, Granulari
             self.strings.0,
         );
 
-        <Mode as PanicMode>::to_output(tryblock! {
-            match parser.parse_node(Some(self.parent)) {
-                Ok(node) => {
-                    self.data = parser.data();
-
-                    Ok(Some(node))
-                }
-                Err(ParseError::UnexpectedEndOfData) => Ok(None),
-                Err(e) => return Err(e),
+        match parser.peek_token() {
+            Ok(BigEndianToken::BEGIN_NODE) => {}
+            Ok(BigEndianToken::END_NODE) => return <Mode as PanicMode>::to_output(Ok(None)),
+            Ok(_) => return <Mode as PanicMode>::to_output(Err(ParseError::UnexpectedToken)),
+            Err(ParseError::UnexpectedEndOfData) => {
+                return <Mode as PanicMode>::to_output(Ok(None))
             }
+            Err(e) => return <Mode as PanicMode>::to_output(Err(e)),
+        }
+
+        <Mode as PanicMode>::to_output(match parser.parse_node(Some(self.parent)) {
+            Ok(node) => {
+                self.data = parser.data();
+
+                Ok(Some(node))
+            }
+            Err(ParseError::UnexpectedEndOfData) => Ok(None),
+            Err(e) => Err(e),
         })
     }
 
-    pub fn find(
+    pub fn find<'n, N>(
         &self,
-        name: &str,
-    ) -> <Mode as PanicMode>::Output<Option<Node<'a, Granularity, Mode>>> {
+        name: N,
+    ) -> <Mode as PanicMode>::Output<Option<Node<'a, Granularity, Mode>>>
+    where
+        N: IntoSearchableNodeName<'n>,
+        Mode: 'a,
+    {
+        let name = name.into_searchable_node_name();
         <Mode as PanicMode>::reverse_transpose(self.iter().find(|n| {
             <Mode as PanicMode>::ok_as_ref(n)
-                .and_then(|n| <Mode as PanicMode>::ok_as_ref(&n.name()))
-                .map(|n| n.name == name)
+                .and_then(|n| <Mode as PanicMode>::ok(n.name()))
+                .map(|n| match name {
+                    SearchableNodeName::Base(base) => n.name == base,
+                    SearchableNodeName::WithUnitAddress(nn) => n == nn,
+                })
                 .unwrap_or_default()
         }))
     }
 }
+
+impl<'a, Granularity: ParserForSize, Mode: PanicMode> Clone
+    for NodeChildren<'a, Granularity, Mode>
+{
+    fn clone(&self) -> Self {
+        Self { _mode: self._mode, data: self.data, strings: self.strings, parent: self.parent }
+    }
+}
+
+impl<'a, Granularity: ParserForSize, Mode: PanicMode> Copy for NodeChildren<'a, Granularity, Mode> {}
 
 #[derive(Clone)]
 pub struct NodeChildrenIter<'a, Granularity: ParserForSize = u32, Mode: PanicMode = Panic> {
     children: NodeChildren<'a, Granularity, Mode>,
 }
 
-impl<'a, Granularity: ParserForSize, Mode: PanicMode> Iterator
+impl<'a, Granularity: ParserForSize, Mode: PanicMode + 'a> Iterator
     for NodeChildrenIter<'a, Granularity, Mode>
 {
     type Item = <Mode as PanicMode>::Output<Node<'a, Granularity, Mode>>;

@@ -52,6 +52,9 @@
 #![no_std]
 
 #[cfg(test)]
+extern crate std;
+
+#[cfg(test)]
 mod tests;
 
 mod nodes;
@@ -61,12 +64,16 @@ pub mod properties;
 pub mod standard_nodes;
 mod util;
 
-use node::MemoryReservation;
 use parsing::{
-    aligned::AlignedParser, unaligned::UnalignedParser, BigEndianU32, FdtData, NoPanic, Panic,
-    PanicMode, ParseError, Parser,
+    aligned::AlignedParser, unaligned::UnalignedParser, NoPanic, Panic, PanicMode, ParseError,
+    Parser, StringsBlock,
 };
-use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
+use standard_nodes::Root;
+// use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
+
+mod sealed {
+    pub trait Sealed {}
+}
 
 /// Possible errors when attempting to create an `Fdt`
 #[derive(Debug, Clone, Copy)]
@@ -103,7 +110,7 @@ impl core::fmt::Display for FdtError {
 #[derive(Clone, Copy)]
 pub struct Fdt<'a, P: Parser<'a>, Mode: PanicMode = Panic> {
     parser: P,
-    strings: &'a [u8],
+    strings: StringsBlock<'a>,
     structs: &'a [P::Granularity],
     header: FdtHeader,
     _mode: core::marker::PhantomData<*mut Mode>,
@@ -115,11 +122,11 @@ impl<'a, P: Parser<'a>> core::fmt::Debug for Fdt<'a, P> {
     }
 }
 
-impl<'a, P: Parser<'a>> core::fmt::Display for Fdt<'a, P> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        pretty_print::print_node(f, self.root().node, 0)
-    }
-}
+// impl<'a, P: Parser<'a>> core::fmt::Display for Fdt<'a, P> {
+//     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+//         pretty_print::print_node(f, self.root().node, 0)
+//     }
+// }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -156,9 +163,10 @@ impl FdtHeader {
 impl<'a> Fdt<'a, UnalignedParser<'a>, Panic> {
     /// Construct a new `Fdt` from a byte buffer
     pub fn new_unaligned(data: &'a [u8]) -> Result<Self, FdtError> {
-        let mut parser = UnalignedParser::new(data);
+        let mut parser = UnalignedParser::new(data, &[]);
         let header = parser.parse_header()?;
-        let strings = &data[header.strings_offset as usize..][..header.strings_size as usize];
+        let strings =
+            StringsBlock(&data[header.strings_offset as usize..][..header.strings_size as usize]);
         let structs = &data[header.structs_offset as usize..][..header.structs_size as usize];
 
         if !header.valid_magic() {
@@ -180,7 +188,7 @@ impl<'a> Fdt<'a, UnalignedParser<'a>, Panic> {
 
         let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
         let real_size =
-            usize::try_from(UnalignedParser::new(tmp_header).parse_header()?.total_size)
+            usize::try_from(UnalignedParser::new(tmp_header, &[]).parse_header()?.total_size)
                 .map_err(|_| ParseError::NumericConversionError)?;
 
         Self::new_unaligned(core::slice::from_raw_parts(ptr, real_size))
@@ -190,14 +198,16 @@ impl<'a> Fdt<'a, UnalignedParser<'a>, Panic> {
 impl<'a> Fdt<'a, AlignedParser<'a>, Panic> {
     /// Construct a new `Fdt` from a `u32`-aligned buffer
     pub fn new(data: &'a [u32]) -> Result<Self, FdtError> {
-        let mut parser = AlignedParser::new(data);
+        let mut parser = AlignedParser::new(data, &[]);
         let header = parser.parse_header()?;
 
         let strings_start = header.strings_offset as usize;
         let strings_end = strings_start + header.strings_size as usize;
-        let strings = util::cast_slice(data)
-            .get(strings_start..strings_end)
-            .ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))?;
+        let strings = StringsBlock(
+            util::cast_slice(data)
+                .get(strings_start..strings_end)
+                .ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))?,
+        );
 
         let structs_start = header.structs_offset as usize / 4;
         let structs_end = structs_start + (header.structs_size as usize / 4);
@@ -207,11 +217,17 @@ impl<'a> Fdt<'a, AlignedParser<'a>, Panic> {
 
         if !header.valid_magic() {
             return Err(FdtError::BadMagic);
-        } else if data.len() < header.total_size as usize {
+        } else if data.len() < (header.total_size / 4) as usize {
             return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData));
         }
 
-        Ok(Self { header, parser, strings, structs, _mode: core::marker::PhantomData })
+        Ok(Self {
+            header,
+            parser: AlignedParser::new(structs, strings.0),
+            strings,
+            structs,
+            _mode: core::marker::PhantomData,
+        })
     }
 
     /// # Safety
@@ -223,8 +239,9 @@ impl<'a> Fdt<'a, AlignedParser<'a>, Panic> {
         }
 
         let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
-        let real_size = usize::try_from(AlignedParser::new(tmp_header).parse_header()?.total_size)
-            .map_err(|_| ParseError::NumericConversionError)?;
+        let real_size =
+            usize::try_from(AlignedParser::new(tmp_header, &[]).parse_header()?.total_size)
+                .map_err(|_| ParseError::NumericConversionError)?;
 
         Self::new(core::slice::from_raw_parts(ptr, real_size))
     }
@@ -264,55 +281,55 @@ impl<'a> Fdt<'a, AlignedParser<'a>, NoPanic> {
 
 impl<'a, P: Parser<'a>, Mode: PanicMode> Fdt<'a, P, Mode> {
     /// Return the `/aliases` node, if one exists
-    pub fn aliases(&self) -> Option<Aliases<'_, 'a>> {
-        Some(Aliases {
-            node: node::find_node(&mut FdtData::new(self.structs_block()), "/aliases", self, None)?,
-            header: self,
-        })
-    }
+    // pub fn aliases(&self) -> Option<Aliases<'_, 'a>> {
+    //     Some(Aliases {
+    //         node: node::find_node(&mut FdtData::new(self.structs_block()), "/aliases", self, None)?,
+    //         header: self,
+    //     })
+    // }
 
     /// Searches for the `/chosen` node, which is always available
-    pub fn chosen(&self) -> Chosen<'_, 'a> {
-        node::find_node(&mut FdtData::new(self.structs_block()), "/chosen", self, None)
-            .map(|node| Chosen { node })
-            .expect("/chosen is required")
-    }
+    // pub fn chosen(&self) -> Chosen<'_, 'a> {
+    //     node::find_node(&mut FdtData::new(self.structs_block()), "/chosen", self, None)
+    //         .map(|node| Chosen { node })
+    //         .expect("/chosen is required")
+    // }
 
     /// Return the `/cpus` node, which is always available
-    pub fn cpus(&self) -> impl Iterator<Item = Cpu<'_, 'a>> {
-        let parent = self.find_node("/cpus").expect("/cpus is a required node");
+    // pub fn cpus(&self) -> impl Iterator<Item = Cpu<'_, 'a>> {
+    //     let parent = self.find_node("/cpus").expect("/cpus is a required node");
 
-        parent
-            .children()
-            .filter(|c| c.name.split('@').next().unwrap() == "cpu")
-            .map(move |cpu| Cpu { parent, node: cpu })
-    }
+    //     parent
+    //         .children()
+    //         .filter(|c| c.name.split('@').next().unwrap() == "cpu")
+    //         .map(move |cpu| Cpu { parent, node: cpu })
+    // }
 
     /// Returns the memory node, which is always available
-    pub fn memory(&self) -> Memory<'_, 'a> {
-        Memory { node: self.find_node("/memory").expect("requires memory node") }
-    }
+    // pub fn memory(&self) -> Memory<'_, 'a> {
+    //     Memory { node: self.find_node("/memory").expect("requires memory node") }
+    // }
 
     /// Returns an iterator over the memory reservations
-    pub fn memory_reservations(&self) -> impl Iterator<Item = MemoryReservation> + 'a {
-        let mut stream = FdtData::new(&self.data[self.header.off_mem_rsvmap.to_ne() as usize..]);
-        let mut done = false;
+    // pub fn memory_reservations(&self) -> impl Iterator<Item = MemoryReservation> + 'a {
+    //     let mut stream = FdtData::new(&self.data[self.header.off_mem_rsvmap.to_ne() as usize..]);
+    //     let mut done = false;
 
-        core::iter::from_fn(move || {
-            if stream.is_empty() || done {
-                return None;
-            }
+    //     core::iter::from_fn(move || {
+    //         if stream.is_empty() || done {
+    //             return None;
+    //         }
 
-            let res = MemoryReservation::from_bytes(&mut stream)?;
+    //         let res = MemoryReservation::from_bytes(&mut stream)?;
 
-            if res.address() as usize == 0 && res.size() == 0 {
-                done = true;
-                return None;
-            }
+    //         if res.address() as usize == 0 && res.size() == 0 {
+    //             done = true;
+    //             return None;
+    //         }
 
-            Some(res)
-        })
-    }
+    //         Some(res)
+    //     })
+    // }
 
     /// Return reference to raw data. This can be used to obtain the original pointer passed to
     /// [Fdt::from_ptr].
@@ -324,13 +341,16 @@ impl<'a, P: Parser<'a>, Mode: PanicMode> Fdt<'a, P, Mode> {
     /// let fdt = unsafe{fdt::Fdt::from_ptr(original_pointer)}.unwrap();
     /// assert_eq!(fdt.raw_data().as_ptr(), original_pointer);
     /// ```
-    pub fn raw_data(&self) -> &'a [P::Granularity] {
-        self.data
-    }
+    // pub fn raw_data(&self) -> &'a [P::Granularity] {
+    //     // self.structs
+    // }
 
     /// Return the root (`/`) node, which is always available
-    pub fn root(&self) -> Root<'_, 'a> {
-        Root { node: self.find_node("/").expect("/ is a required node") }
+    pub fn root(
+        &self,
+    ) -> <Mode as PanicMode>::Output<Root<'a, <P as Parser<'a>>::Granularity, Mode>> {
+        let mut parser = self.parser.clone();
+        <Mode as PanicMode>::to_output(parser.parse_root::<Mode>().map(|node| Root { node }))
     }
 
     /// Returns the first node that matches the node path, if you want all that
@@ -344,28 +364,28 @@ impl<'a, P: Parser<'a>, Mode: PanicMode> Fdt<'a, P, Mode> {
     /// Note: if the address of a node name is left out, the search will find
     /// the first node that has a matching name, ignoring the address portion if
     /// it exists.
-    pub fn find_node(&self, path: &str) -> Option<node::FdtNode<'_, 'a>> {
-        let node = node::find_node(&mut FdtData::new(self.structs_block()), path, self, None);
-        node.or_else(|| self.aliases()?.resolve_node(path))
-    }
+    // pub fn find_node(&self, path: &str) -> Option<node::FdtNode<'_, 'a>> {
+    //     let node = node::find_node(&mut FdtData::new(self.structs_block()), path, self, None);
+    //     node.or_else(|| self.aliases()?.resolve_node(path))
+    // }
 
     /// Searches for a node which contains a `compatible` property and contains
     /// one of the strings inside of `with`
-    pub fn find_compatible(&self, with: &[&str]) -> Option<node::FdtNode<'_, 'a>> {
-        self.all_nodes().find(|n| {
-            n.compatible().and_then(|compats| compats.all().find(|c| with.contains(c))).is_some()
-        })
-    }
+    // pub fn find_compatible(&self, with: &[&str]) -> Option<node::FdtNode<'_, 'a>> {
+    //     self.all_nodes().find(|n| {
+    //         n.compatible().and_then(|compats| compats.all().find(|c| with.contains(c))).is_some()
+    //     })
+    // }
 
     /// Searches for the given `phandle`
-    pub fn find_phandle(&self, phandle: u32) -> Option<node::FdtNode<'_, 'a>> {
-        self.all_nodes().find(|n| {
-            n.properties()
-                .find(|p| p.name == "phandle")
-                .and_then(|p| Some(BigEndianU32::from_bytes(p.value)?.to_ne() == phandle))
-                .unwrap_or(false)
-        })
-    }
+    // pub fn find_phandle(&self, phandle: u32) -> Option<node::FdtNode<'_, 'a>> {
+    //     self.all_nodes().find(|n| {
+    //         n.properties()
+    //             .find(|p| p.name == "phandle")
+    //             .and_then(|p| Some(BigEndianU32::from_bytes(p.value)?.to_ne() == phandle))
+    //             .unwrap_or(false)
+    //     })
+    // }
 
     /// Returns an iterator over all of the available nodes with the given path.
     /// This does **not** attempt to find any node with the same name as the
@@ -394,54 +414,54 @@ impl<'a, P: Parser<'a>, Mode: PanicMode> Fdt<'a, P, Mode> {
     /// virtio_mmio@10002000
     /// virtio_mmio@10001000
     /// ```
-    pub fn find_all_nodes(&self, path: &'a str) -> impl Iterator<Item = node::FdtNode<'_, 'a>> {
-        let mut done = false;
-        let only_root = path == "/";
-        let valid_path = path.chars().fold(0, |acc, c| acc + if c == '/' { 1 } else { 0 }) >= 1;
+    // pub fn find_all_nodes(&self, path: &'a str) -> impl Iterator<Item = node::FdtNode<'_, 'a>> {
+    //     let mut done = false;
+    //     let only_root = path == "/";
+    //     let valid_path = path.chars().fold(0, |acc, c| acc + if c == '/' { 1 } else { 0 }) >= 1;
 
-        let mut path_split = path.rsplitn(2, '/');
-        let child_name = path_split.next().unwrap();
-        let parent = match path_split.next() {
-            Some("") => Some(self.root().node),
-            Some(s) => node::find_node(&mut FdtData::new(self.structs_block()), s, self, None),
-            None => None,
-        };
+    //     let mut path_split = path.rsplitn(2, '/');
+    //     let child_name = path_split.next().unwrap();
+    //     let parent = match path_split.next() {
+    //         Some("") => Some(self.root().node),
+    //         Some(s) => node::find_node(&mut FdtData::new(self.structs_block()), s, self, None),
+    //         None => None,
+    //     };
 
-        let (parent, bad_parent) = match parent {
-            Some(parent) => (parent, false),
-            None => (self.find_node("/").unwrap(), true),
-        };
+    //     let (parent, bad_parent) = match parent {
+    //         Some(parent) => (parent, false),
+    //         None => (self.find_node("/").unwrap(), true),
+    //     };
 
-        let mut child_iter = parent.children();
+    //     let mut child_iter = parent.children();
 
-        core::iter::from_fn(move || {
-            if done || !valid_path || bad_parent {
-                return None;
-            }
+    //     core::iter::from_fn(move || {
+    //         if done || !valid_path || bad_parent {
+    //             return None;
+    //         }
 
-            if only_root {
-                done = true;
-                return self.find_node("/");
-            }
+    //         if only_root {
+    //             done = true;
+    //             return self.find_node("/");
+    //         }
 
-            let mut ret = None;
+    //         let mut ret = None;
 
-            #[allow(clippy::while_let_on_iterator)]
-            while let Some(child) = child_iter.next() {
-                if child.name.split('@').next()? == child_name {
-                    ret = Some(child);
-                    break;
-                }
-            }
+    //         #[allow(clippy::while_let_on_iterator)]
+    //         while let Some(child) = child_iter.next() {
+    //             if child.name.split('@').next()? == child_name {
+    //                 ret = Some(child);
+    //                 break;
+    //             }
+    //         }
 
-            ret
-        })
-    }
+    //         ret
+    //     })
+    // }
 
     /// Returns an iterator over all of the nodes in the devicetree, depth-first
-    pub fn all_nodes(&self) -> impl Iterator<Item = node::FdtNode<'_, 'a>> {
-        node::all_nodes(self)
-    }
+    // pub fn all_nodes(&self) -> impl Iterator<Item = node::FdtNode<'_, 'a>> {
+    //     node::all_nodes(self)
+    // }
 
     /// Returns an iterator over all of the strings inside of the strings block
     pub fn strings(&self) -> impl Iterator<Item = &'a str> {
@@ -462,7 +482,7 @@ impl<'a, P: Parser<'a>, Mode: PanicMode> Fdt<'a, P, Mode> {
 
     /// Total size of the devicetree in bytes
     pub fn total_size(&self) -> usize {
-        self.header.totalsize.to_ne() as usize
+        self.header.total_size as usize
     }
 
     fn cstr_at_offset(&self, offset: usize) -> &'a core::ffi::CStr {
@@ -475,10 +495,10 @@ impl<'a, P: Parser<'a>, Mode: PanicMode> Fdt<'a, P, Mode> {
     }
 
     fn strings_block(&self) -> &'a [u8] {
-        &self.data[self.header.strings_range()]
+        self.strings.0
     }
 
-    fn structs_block(&self) -> &'a [u8] {
-        &self.data[self.header.struct_range()]
+    fn structs_block(&self) -> &'a [P::Granularity] {
+        self.structs
     }
 }

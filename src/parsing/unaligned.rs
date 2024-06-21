@@ -2,9 +2,7 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file, You can
 // obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{
-    sealed, BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock,
-};
+use super::{BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock};
 
 pub struct UnalignedParser<'a> {
     stream: Stream<'a, u8>,
@@ -13,11 +11,11 @@ pub struct UnalignedParser<'a> {
 
 impl Clone for UnalignedParser<'_> {
     fn clone(&self) -> Self {
-        Self { stream: self.stream.clone(), strings: self.strings.clone() }
+        Self { stream: self.stream.clone(), strings: self.strings }
     }
 }
 
-impl sealed::Sealed for UnalignedParser<'_> {}
+impl crate::sealed::Sealed for UnalignedParser<'_> {}
 impl<'a> Parser<'a> for UnalignedParser<'a> {
     type Granularity = u8;
 
@@ -79,7 +77,7 @@ impl<'a> Parser<'a> for UnalignedParser<'a> {
             .map_err(|_| ParseError::InvalidCStrValue)?;
 
         // Round up to the next multiple of 4, if necessary
-        let skip = (cstr.to_bytes().len() + 3) & !3;
+        let skip = (cstr.to_bytes_with_nul().len() + 3) & !3;
         self.stream.skip_many(skip);
 
         Ok(cstr)

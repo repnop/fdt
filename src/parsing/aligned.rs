@@ -2,9 +2,7 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file, You can
 // obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{
-    sealed, BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock,
-};
+use super::{BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock};
 
 pub struct AlignedParser<'a> {
     stream: Stream<'a, u32>,
@@ -13,11 +11,11 @@ pub struct AlignedParser<'a> {
 
 impl Clone for AlignedParser<'_> {
     fn clone(&self) -> Self {
-        Self { stream: self.stream.clone(), strings: self.strings.clone() }
+        Self { stream: self.stream.clone(), strings: self.strings }
     }
 }
 
-impl sealed::Sealed for AlignedParser<'_> {}
+impl crate::sealed::Sealed for AlignedParser<'_> {}
 impl<'a> Parser<'a> for AlignedParser<'a> {
     type Granularity = u32;
 
@@ -82,14 +80,14 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
         let bytes = unsafe {
             core::slice::from_raw_parts(
                 self.stream.0.as_ptr().cast::<u8>(),
-                core::mem::size_of_val(self.stream.0),
+                self.stream.0.len() * 4,
             )
         };
         let cstr = core::ffi::CStr::from_bytes_until_nul(bytes)
             .map_err(|_| ParseError::InvalidCStrValue)?;
 
         // Round up to the next multiple of 4, if necessary
-        let skip = ((cstr.to_bytes().len() + 3) & !3) / 4;
+        let skip = ((cstr.to_bytes_with_nul().len() + 3) & !3) / 4;
         self.stream.skip_many(skip);
 
         Ok(cstr)

@@ -4,7 +4,7 @@ use crate::{
 };
 
 pub trait Property<'a>: Sized {
-    fn parse<Granularity, Mode>(
+    fn parse<'b, Granularity, Mode>(
         node: Node<'a, Granularity, Mode>,
     ) -> Result<Option<Self>, ParseError>
     where
@@ -19,7 +19,7 @@ pub struct CellSizes {
 
 impl<'a> Property<'a> for CellSizes {
     #[track_caller]
-    fn parse<Granularity, Mode>(
+    fn parse<'b, Granularity, Mode>(
         node: Node<'a, Granularity, Mode>,
     ) -> Result<Option<Self>, ParseError>
     where
