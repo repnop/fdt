@@ -2,6 +2,8 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file, You can
 // obtain one at https://mozilla.org/MPL/2.0/.
 
+use crate::FdtError;
+
 use super::{BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock};
 
 pub struct UnalignedParser<'a> {
@@ -35,7 +37,7 @@ impl<'a> Parser<'a> for UnalignedParser<'a> {
         self.strings
     }
 
-    fn advance_token(&mut self) -> Result<BigEndianToken, ParseError> {
+    fn advance_token(&mut self) -> Result<BigEndianToken, FdtError> {
         loop {
             match BigEndianToken(self.advance_u32()?) {
                 BigEndianToken::NOP => continue,
@@ -43,14 +45,14 @@ impl<'a> Parser<'a> for UnalignedParser<'a> {
                 | token @ BigEndianToken::END_NODE
                 | token @ BigEndianToken::PROP
                 | token @ BigEndianToken::END => break Ok(token),
-                _ => break Err(ParseError::InvalidTokenValue),
+                _ => break Err(FdtError::ParseError(ParseError::InvalidTokenValue)),
             }
         }
     }
 
-    fn advance_u32(&mut self) -> Result<BigEndianU32, ParseError> {
+    fn advance_u32(&mut self) -> Result<BigEndianU32, FdtError> {
         if self.stream.0.len() < core::mem::size_of::<u32>() {
-            return Err(ParseError::UnexpectedEndOfData);
+            return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData));
         }
 
         let data = self.stream.0;
@@ -60,9 +62,9 @@ impl<'a> Parser<'a> for UnalignedParser<'a> {
         Ok(BigEndianU32::from_be(unsafe { core::ptr::read_unaligned(data.as_ptr().cast::<u32>()) }))
     }
 
-    fn advance_u64(&mut self) -> Result<BigEndianU64, ParseError> {
+    fn advance_u64(&mut self) -> Result<BigEndianU64, FdtError> {
         if self.stream.0.len() < core::mem::size_of::<u64>() {
-            return Err(ParseError::UnexpectedEndOfData);
+            return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData));
         }
 
         let data = self.stream.0;
@@ -72,7 +74,7 @@ impl<'a> Parser<'a> for UnalignedParser<'a> {
         Ok(BigEndianU64::from_be(unsafe { core::ptr::read_unaligned(data.as_ptr().cast::<u64>()) }))
     }
 
-    fn advance_cstr(&mut self) -> Result<&'a core::ffi::CStr, ParseError> {
+    fn advance_cstr(&mut self) -> Result<&'a core::ffi::CStr, FdtError> {
         let cstr = core::ffi::CStr::from_bytes_until_nul(self.stream.0)
             .map_err(|_| ParseError::InvalidCStrValue)?;
 

@@ -58,39 +58,75 @@ fn root() {
 #[test]
 fn all_nodes() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-    panic!(
-        "{}",
+    assert_eq!(
         fdt.root()
             .all_nodes()
-            .map(|n| std::format!("{}", n.name()))
+            .map(|(depth, n)| std::format!("{depth} {}", n.name()))
             .collect::<std::vec::Vec<_>>()
-            .join("\n")
+            .join("\n"),
+        "1 chosen
+1 memory@80000000
+1 cpus
+2 cpu@0
+3 interrupt-controller
+2 cpu-map
+3 cluster0
+4 core0
+1 emptyproptest
+1 soc
+2 flash@20000000
+2 rtc@101000
+2 uart@10000000
+2 poweroff
+2 reboot
+2 test@100000"
     );
 }
 
-// #[test]
-// fn finds_root_node() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     assert!(fdt.find_node("/").is_some(), "couldn't find root node");
-// }
+#[test]
+fn finds_root_node() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    assert!(fdt.root().find_node("/").is_some(), "couldn't find root node");
+}
 
-// #[test]
-// fn finds_root_node_properties() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let prop = fdt
-//         .find_node("/")
-//         .unwrap()
-//         .properties()
-//         .any(|p| p.name == "compatible" && p.value == b"riscv-virtio\0");
+#[test]
+fn finds_root_node_properties() {
+    // infallible
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let prop = fdt.root().find_node("/").unwrap().properties().find("compatible").unwrap();
 
-//     assert!(prop);
-// }
+    assert_eq!(prop.value(), b"riscv-virtio\0");
+
+    // fallible
+    let fdt = Fdt::new_fallible(TEST.as_slice()).unwrap();
+    let prop = fdt
+        .root()
+        .unwrap()
+        .find_node("/")
+        .unwrap()
+        .unwrap()
+        .properties()
+        .unwrap()
+        .find("compatible")
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(prop.value(), b"riscv-virtio\0");
+}
 
 #[test]
 fn finds_child_of_root_node() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let root = fdt.root();
     assert!(root.find_node("/cpus").is_some(), "couldn't find cpus node");
+}
+
+#[test]
+fn finds_child_with_unit_address() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let root = fdt.root();
+    assert!(root.find_node("/memory@80000000").is_some(), "couldn't find cpus node");
+    assert!(root.find_node("/memory@80000001").is_none(), "didn't use unit address to filter!");
 }
 
 // #[test]
