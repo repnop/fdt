@@ -65,8 +65,8 @@ pub mod standard_nodes;
 mod util;
 
 use parsing::{
-    aligned::AlignedParser, unaligned::UnalignedParser, NoPanic, Panic, PanicMode, ParseError,
-    Parser, StringsBlock,
+    aligned::AlignedParser, unaligned::UnalignedParser, NoPanic, Panic, ParseError, Parser,
+    ParserWithMode, StringsBlock,
 };
 use standard_nodes::Root;
 // use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
@@ -84,6 +84,8 @@ pub enum FdtError {
     BadPtr,
     /// An error was encountered during parsing
     ParseError(ParseError),
+    MissingRequiredNode(&'static str),
+    MissingRequiredProperty(&'static str),
 }
 
 impl From<ParseError> for FdtError {
@@ -98,6 +100,12 @@ impl core::fmt::Display for FdtError {
             FdtError::BadMagic => write!(f, "bad FDT magic value"),
             FdtError::BadPtr => write!(f, "an invalid pointer was passed"),
             FdtError::ParseError(e) => core::fmt::Display::fmt(e, f),
+            FdtError::MissingRequiredNode(name) => {
+                write!(f, "FDT is missing a required node `{}`", name)
+            }
+            FdtError::MissingRequiredProperty(name) => {
+                write!(f, "FDT node is missing a required property `{}`", name)
+            }
         }
     }
 }
@@ -108,15 +116,14 @@ impl core::fmt::Display for FdtError {
 /// print any useful information, if you would like a best-effort tree print
 /// which looks similar to `dtc`'s output, enable the `pretty-printing` feature
 #[derive(Clone, Copy)]
-pub struct Fdt<'a, P: Parser<'a>, Mode: PanicMode = Panic> {
+pub struct Fdt<'a, P: ParserWithMode<'a>> {
     parser: P,
     strings: StringsBlock<'a>,
     structs: &'a [P::Granularity],
     header: FdtHeader,
-    _mode: core::marker::PhantomData<*mut Mode>,
 }
 
-impl<'a, P: Parser<'a>> core::fmt::Debug for Fdt<'a, P> {
+impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Fdt<'a, P> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Fdt").finish_non_exhaustive()
     }
@@ -160,7 +167,7 @@ impl FdtHeader {
     }
 }
 
-impl<'a> Fdt<'a, UnalignedParser<'a>, Panic> {
+impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
     /// Construct a new `Fdt` from a byte buffer
     pub fn new_unaligned(data: &'a [u8]) -> Result<Self, FdtError> {
         let mut parser = UnalignedParser::new(data, &[]);
@@ -175,7 +182,12 @@ impl<'a> Fdt<'a, UnalignedParser<'a>, Panic> {
             return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData));
         }
 
-        Ok(Self { header, parser, strings, structs, _mode: core::marker::PhantomData })
+        Ok(Self {
+            header,
+            parser: (UnalignedParser::new(data, strings.0), Panic),
+            strings,
+            structs,
+        })
     }
 
     /// # Safety
@@ -195,7 +207,7 @@ impl<'a> Fdt<'a, UnalignedParser<'a>, Panic> {
     }
 }
 
-impl<'a> Fdt<'a, AlignedParser<'a>, Panic> {
+impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
     /// Construct a new `Fdt` from a `u32`-aligned buffer
     pub fn new(data: &'a [u32]) -> Result<Self, FdtError> {
         let mut parser = AlignedParser::new(data, &[]);
@@ -223,10 +235,9 @@ impl<'a> Fdt<'a, AlignedParser<'a>, Panic> {
 
         Ok(Self {
             header,
-            parser: AlignedParser::new(structs, strings.0),
+            parser: (AlignedParser::new(structs, strings.0), Panic),
             strings,
             structs,
-            _mode: core::marker::PhantomData,
         })
     }
 
@@ -247,11 +258,16 @@ impl<'a> Fdt<'a, AlignedParser<'a>, Panic> {
     }
 }
 
-impl<'a> Fdt<'a, UnalignedParser<'a>, NoPanic> {
+impl<'a> Fdt<'a, (UnalignedParser<'a>, NoPanic)> {
     /// Construct a new `Fdt` from a byte buffer
     pub fn new_unaligned_fallible(data: &'a [u8]) -> Result<Self, FdtError> {
         let Fdt { parser, strings, structs, header, .. } = Fdt::new_unaligned(data)?;
-        Ok(Self { parser, strings, structs, header, _mode: core::marker::PhantomData })
+        Ok(Self {
+            parser: (UnalignedParser::new(parser.data(), strings.0), NoPanic),
+            strings,
+            structs,
+            header,
+        })
     }
 
     /// # Safety
@@ -259,15 +275,25 @@ impl<'a> Fdt<'a, UnalignedParser<'a>, NoPanic> {
     /// is invalid this can result in undefined behavior.
     pub unsafe fn from_ptr_unaligned_fallible(ptr: *const u8) -> Result<Self, FdtError> {
         let Fdt { parser, strings, structs, header, .. } = Fdt::from_ptr_unaligned(ptr)?;
-        Ok(Self { parser, strings, structs, header, _mode: core::marker::PhantomData })
+        Ok(Self {
+            parser: (UnalignedParser::new(parser.data(), strings.0), NoPanic),
+            strings,
+            structs,
+            header,
+        })
     }
 }
 
-impl<'a> Fdt<'a, AlignedParser<'a>, NoPanic> {
+impl<'a> Fdt<'a, (AlignedParser<'a>, NoPanic)> {
     /// Construct a new `Fdt` from a `u32`-aligned buffer which won't panic on invalid data
     pub fn new_fallible(data: &'a [u32]) -> Result<Self, FdtError> {
         let Fdt { parser, strings, structs, header, .. } = Fdt::new(data)?;
-        Ok(Self { parser, strings, structs, header, _mode: core::marker::PhantomData })
+        Ok(Self {
+            parser: (AlignedParser::new(parser.data(), strings.0), NoPanic),
+            strings,
+            structs,
+            header,
+        })
     }
 
     /// # Safety
@@ -275,11 +301,16 @@ impl<'a> Fdt<'a, AlignedParser<'a>, NoPanic> {
     /// is invalid this can result in undefined behavior.
     pub unsafe fn from_ptr_fallible(ptr: *const u32) -> Result<Self, FdtError> {
         let Fdt { parser, strings, structs, header, .. } = Fdt::from_ptr(ptr)?;
-        Ok(Self { parser, strings, structs, header, _mode: core::marker::PhantomData })
+        Ok(Self {
+            parser: (AlignedParser::new(parser.data(), strings.0), NoPanic),
+            strings,
+            structs,
+            header,
+        })
     }
 }
 
-impl<'a, P: Parser<'a>, Mode: PanicMode> Fdt<'a, P, Mode> {
+impl<'a, P: ParserWithMode<'a>> Fdt<'a, P> {
     /// Return the `/aliases` node, if one exists
     // pub fn aliases(&self) -> Option<Aliases<'_, 'a>> {
     //     Some(Aliases {
@@ -346,11 +377,9 @@ impl<'a, P: Parser<'a>, Mode: PanicMode> Fdt<'a, P, Mode> {
     // }
 
     /// Return the root (`/`) node, which is always available
-    pub fn root(
-        &self,
-    ) -> <Mode as PanicMode>::Output<Root<'a, <P as Parser<'a>>::Granularity, Mode>> {
+    pub fn root(&self) -> P::Output<Root<'a, P>> {
         let mut parser = self.parser.clone();
-        <Mode as PanicMode>::to_output(parser.parse_root::<Mode>().map(|node| Root { node }))
+        P::to_output(parser.parse_root().map(|node| Root { node }))
     }
 
     /// Returns the first node that matches the node path, if you want all that

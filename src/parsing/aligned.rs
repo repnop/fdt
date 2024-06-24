@@ -2,6 +2,8 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file, You can
 // obtain one at https://mozilla.org/MPL/2.0/.
 
+use crate::FdtError;
+
 use super::{BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock};
 
 pub struct AlignedParser<'a> {
@@ -32,7 +34,7 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
         unsafe {
             core::slice::from_raw_parts(
                 self.stream.0.as_ptr().cast::<u8>(),
-                core::mem::size_of_val(self.stream.0),
+                self.stream.0.len() * 4,
             )
         }
     }
@@ -41,7 +43,7 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
         self.strings
     }
 
-    fn advance_token(&mut self) -> Result<BigEndianToken, ParseError> {
+    fn advance_token(&mut self) -> Result<BigEndianToken, FdtError> {
         loop {
             match BigEndianToken(
                 self.stream.advance().map(BigEndianU32).ok_or(ParseError::UnexpectedEndOfData)?,
@@ -51,16 +53,19 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
                 | token @ BigEndianToken::END_NODE
                 | token @ BigEndianToken::PROP
                 | token @ BigEndianToken::END => break Ok(token),
-                _ => break Err(ParseError::InvalidTokenValue),
+                _ => break Err(FdtError::ParseError(ParseError::InvalidTokenValue)),
             }
         }
     }
 
-    fn advance_u32(&mut self) -> Result<BigEndianU32, ParseError> {
-        self.stream.advance().map(BigEndianU32).ok_or(ParseError::UnexpectedEndOfData)
+    fn advance_u32(&mut self) -> Result<BigEndianU32, FdtError> {
+        self.stream
+            .advance()
+            .map(BigEndianU32)
+            .ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))
     }
 
-    fn advance_u64(&mut self) -> Result<BigEndianU64, ParseError> {
+    fn advance_u64(&mut self) -> Result<BigEndianU64, FdtError> {
         let (a, b) = self
             .stream
             .advance()
@@ -75,7 +80,7 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
         return Ok(BigEndianU64::from_be((u64::from(a.to_be()) << 32) | u64::from(b.to_be())));
     }
 
-    fn advance_cstr(&mut self) -> Result<&'a core::ffi::CStr, ParseError> {
+    fn advance_cstr(&mut self) -> Result<&'a core::ffi::CStr, FdtError> {
         // SAFETY: It is safe to reinterpret the stream data to a smaller integer size
         let bytes = unsafe {
             core::slice::from_raw_parts(
