@@ -8,6 +8,7 @@ pub trait Property<'a>: Sized {
     fn parse<P: Parser<'a>>(node: Node<'a, (P, NoPanic)>) -> Result<Option<Self>, FdtError>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CellSizes {
     pub address_cells: usize,
     pub size_cells: usize,

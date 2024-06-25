@@ -9,65 +9,6 @@ use crate::{
     nodes::{Node, RawNode},
     FdtError, FdtHeader,
 };
-
-#[derive(Debug, Clone, Copy)]
-pub struct FdtData<'a> {
-    bytes: &'a [u8],
-}
-
-impl<'a> FdtData<'a> {
-    pub fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes }
-    }
-
-    pub fn u32(&mut self) -> Option<BigEndianU32> {
-        let ret = BigEndianU32::from_bytes(self.bytes)?;
-        self.skip(4);
-
-        Some(ret)
-    }
-
-    pub fn u64(&mut self) -> Option<BigEndianU64> {
-        let ret = BigEndianU64::from_bytes(self.bytes)?;
-        self.skip(8);
-
-        Some(ret)
-    }
-
-    pub fn skip(&mut self, n_bytes: usize) {
-        self.bytes = self.bytes.get(n_bytes..).unwrap_or_default()
-    }
-
-    pub fn remaining(&self) -> &'a [u8] {
-        self.bytes
-    }
-
-    pub fn peek_u32(&self) -> Option<BigEndianU32> {
-        Self::new(self.remaining()).u32()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.remaining().is_empty()
-    }
-
-    pub fn skip_nops(&mut self) {
-        while let Some(4) = self.peek_u32().map(|n| n.to_ne()) {
-            let _ = self.u32();
-        }
-    }
-
-    pub fn take(&mut self, bytes: usize) -> Option<&'a [u8]> {
-        if self.bytes.len() >= bytes {
-            let ret = &self.bytes[..bytes];
-            self.skip(bytes);
-
-            return Some(ret);
-        }
-
-        None
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct BigEndianU32(u32);
@@ -91,10 +32,6 @@ impl BigEndianU32 {
 
     pub const fn to_be(self) -> u32 {
         self.0
-    }
-
-    pub(crate) fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(BigEndianU32(u32::from_ne_bytes(bytes.get(..4)?.try_into().unwrap())))
     }
 }
 
@@ -122,15 +59,11 @@ impl BigEndianU64 {
     pub const fn to_be(self) -> u64 {
         self.0
     }
-
-    pub(crate) fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(BigEndianU64(u64::from_ne_bytes(bytes.get(..8)?.try_into().unwrap())))
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct BigEndianToken(BigEndianU32);
+pub struct BigEndianToken(pub(crate) BigEndianU32);
 
 impl BigEndianToken {
     pub const BEGIN_NODE: Self = Self(BigEndianU32::from_ne(1));
@@ -150,7 +83,7 @@ impl<'a, T: Copy> Stream<'a, T> {
 
     #[inline(always)]
     pub(crate) fn advance(&mut self) -> Option<T> {
-        let ret = self.0[0];
+        let ret = *self.0.get(0)?;
         self.0 = self.0.get(1..)?;
         Some(ret)
     }
@@ -279,7 +212,7 @@ impl PanicMode for Panic {
 
 pub trait ParserWithMode<'a>: Parser<'a> + PanicMode + crate::sealed::Sealed {
     type Parser: Parser<'a, Granularity = Self::Granularity>;
-    type Mode: PanicMode;
+    type Mode: PanicMode + Clone + Default;
 
     fn into_parts(
         self,
@@ -331,6 +264,7 @@ impl<'a, T: Parser<'a>, U: PanicMode + Clone + Default> Parser<'a> for (T, U) {
 impl<'a, P: Parser<'a>, U: PanicMode> PanicMode for (P, U) {
     type Output<T> = U::Output<T>;
 
+    #[track_caller]
     fn to_output<T>(result: Result<T, FdtError>) -> Self::Output<T> {
         U::to_output(result)
     }

@@ -37,7 +37,7 @@ impl<'a> IntoSearchableNodeName<'a> for NodeName<'a> {
 impl crate::sealed::Sealed for &'_ str {}
 impl<'a> IntoSearchableNodeName<'a> for &'a str {
     fn into_searchable_node_name(self) -> SearchableNodeName<'a> {
-        match self.split_once('@') {
+        match self.rsplit_once('@') {
             Some((base, unit_address)) => SearchableNodeName::WithUnitAddress(NodeName {
                 name: base,
                 unit_address: Some(unit_address),
@@ -76,13 +76,24 @@ pub struct Node<'a, P: ParserWithMode<'a>> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
-    #[inline]
-    pub(crate) fn new(
-        this: &'a RawNode<<P as Parser<'a>>::Granularity>,
-        parent: Option<&'a RawNode<<P as Parser<'a>>::Granularity>>,
-        strings: StringsBlock<'a>,
-    ) -> Self {
-        Self { this, parent, strings, _mode: core::marker::PhantomData }
+    #[inline(always)]
+    pub(crate) fn fallible(self) -> Node<'a, (P::Parser, NoPanic)> {
+        Node {
+            this: self.this,
+            parent: self.parent,
+            strings: self.strings,
+            _mode: core::marker::PhantomData,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn alt<P2: ParserWithMode<'a, Granularity = P::Granularity>>(self) -> Node<'a, P2> {
+        Node {
+            this: self.this,
+            parent: self.parent,
+            strings: self.strings,
+            _mode: core::marker::PhantomData,
+        }
     }
 
     #[inline]
@@ -123,13 +134,9 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
         })
     }
 
+    #[track_caller]
     pub fn property<Prop: Property<'a>>(&self) -> P::Output<Option<Prop>> {
-        P::to_output(Prop::parse(Node {
-            this: RawNode::new(self.this.as_slice()),
-            strings: self.strings,
-            parent: self.parent.map(|r| RawNode::new(r.as_slice())),
-            _mode: core::marker::PhantomData::<*mut (P::Parser, NoPanic)>,
-        }))
+        P::to_output(Prop::parse(self.fallible()))
     }
 
     #[inline]
@@ -209,8 +216,12 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
 
         match parser.peek_token() {
             Ok(BigEndianToken::PROP) => {}
-            Ok(BigEndianToken::BEGIN_NODE) => return P::to_output(Ok(None)),
-            Ok(_) => return P::to_output(Err(ParseError::UnexpectedToken.into())),
+            Ok(BigEndianToken::BEGIN_NODE) | Ok(BigEndianToken::END_NODE) => {
+                return P::to_output(Ok(None))
+            }
+            Ok(_) => {
+                return P::to_output(Err(ParseError::UnexpectedToken.into()));
+            }
             Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => {
                 return P::to_output(Ok(None))
             }

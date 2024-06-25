@@ -2,12 +2,10 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file, You can
 // obtain one at https://mozilla.org/MPL/2.0/.
 
-use core::ops::ControlFlow;
-
 use crate::{
-    nodes::{IntoSearchableNodeName, Node, NodeName, RawNode, SearchableNodeName},
+    nodes::{IntoSearchableNodeName, Node, RawNode, SearchableNodeName},
     parsing::{
-        aligned::AlignedParser, BigEndianToken, BigEndianU32, BigEndianU64, FdtData, Panic,
+        aligned::AlignedParser, BigEndianToken, BigEndianU32, BigEndianU64, NoPanic, Panic,
         PanicMode, ParseError, Parser, ParserWithMode,
     },
     properties::CellSizes,
@@ -24,7 +22,8 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
     #[track_caller]
     pub fn bootargs(self) -> P::Output<Option<&'a str>> {
         P::to_output(crate::tryblock! {
-            for prop in P::to_result(self.node.properties())?.into_iter().map(|r| P::to_result(r)) {
+            let node = self.node.fallible();
+            for prop in node.properties()?.into_iter() {
                 if let Ok(prop) = prop {
                     if prop.name() == "bootargs" {
                         return Ok(Some(
@@ -149,58 +148,57 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     //     self.node.properties().find(|p| p.name == name)
     // }
 
-    pub fn find_node<'b, N: IntoSearchableNodeName<'b>>(
-        self,
-        name: N,
-    ) -> P::Output<Option<Node<'a, P>>>
+    #[track_caller]
+    pub fn find_node(self, path: &str) -> P::Output<Option<Node<'a, P>>>
     where
         P: 'a,
     {
-        let name = name.into_searchable_node_name();
-
-        if let SearchableNodeName::Base("/") = name {
+        if path == "/" {
             return P::to_output(Ok(Some(self.node)));
         }
 
-        let (name_str, unit_address) = match name {
-            SearchableNodeName::Base(s) => (s, None),
-            SearchableNodeName::WithUnitAddress(NodeName { name, unit_address }) => {
-                (name, unit_address)
-            }
-        };
+        let fallible_self = Root { node: self.node.fallible() };
 
-        let mut children_iter = match P::to_result(self.node.children()) {
+        let mut current_depth = 1;
+        let mut all_nodes = match fallible_self.all_nodes() {
             Ok(iter) => iter,
             Err(e) => return P::to_output(Err(e)),
         };
 
-        let mut name_components = name_str.trim_start_matches('/').split('/').peekable();
-        loop {
-            if name_components.peek().is_none() {
-                return P::to_output(Ok(None));
-            }
+        let mut found_node = None;
+        'outer: for component in path.trim_start_matches('/').split('/') {
+            let component_name = IntoSearchableNodeName::into_searchable_node_name(component);
 
-            let component = name_components.next().unwrap();
-            let is_last_component = name_components.peek().is_none();
-            let look_for_name = match is_last_component {
-                true => NodeName { name: component, unit_address },
-                false => NodeName { name: component, unit_address: None },
-            };
+            loop {
+                let (depth, next_node) = match all_nodes.next() {
+                    Some(Ok(next)) => next,
+                    Some(Err(e)) => return P::to_output(Err(e)),
+                    None => return P::to_output(Ok(None)),
+                };
 
-            match P::to_result(children_iter.find(look_for_name)) {
-                Ok(Some(node)) => match is_last_component {
-                    true => return P::to_output(Ok(Some(node))),
-                    false => {
-                        children_iter = match P::to_result(node.children()) {
-                            Ok(iter) => iter,
-                            Err(e) => return P::to_output(Err(e)),
-                        }
-                    }
-                },
-                Ok(None) => return P::to_output(Ok(None)),
-                Err(e) => return P::to_output(Err(e)),
+                if depth < current_depth {
+                    return P::to_output(Ok(None));
+                }
+
+                let name = match next_node.name() {
+                    Ok(name) => name,
+                    Err(e) => return P::to_output(Err(e)),
+                };
+
+                let name_eq = match component_name {
+                    SearchableNodeName::Base(cname) => cname == name.name,
+                    SearchableNodeName::WithUnitAddress(cname) => cname == name,
+                };
+
+                if name_eq {
+                    found_node = Some(next_node);
+                    current_depth = depth;
+                    continue 'outer;
+                }
             }
         }
+
+        P::to_output(Ok(found_node.map(|n| n.alt::<P>())))
     }
 
     pub fn all_nodes(self) -> P::Output<AllNodesIterator<'a, P>> {
@@ -251,11 +249,16 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
         while let Ok(BigEndianToken::END_NODE) = self.parser.peek_token() {
             let _ = self.parser.advance_token();
             self.parent_index = self.parent_index.saturating_sub(1);
+            #[cfg(test)]
+            std::println!("subtracting parent index: {}", self.parent_index);
         }
 
         match self.parser.advance_token() {
-            Ok(BigEndianToken::BEGIN_NODE) => self.parent_index += 1,
-            Ok(BigEndianToken::END_NODE) => {}
+            Ok(BigEndianToken::BEGIN_NODE) => {
+                self.parent_index += 1;
+                #[cfg(test)]
+                std::println!("incrementing parent index: {}", self.parent_index);
+            }
             Ok(BigEndianToken::END)
             | Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => return None,
             Ok(_) => {
@@ -266,7 +269,10 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
 
         let starting_data = self.parser.data();
 
-        match self.parents.get_mut(self.parent_index) {
+        #[cfg(test)]
+        std::println!("for: {}", self.parser.clone().advance_cstr().unwrap().to_str().unwrap());
+
+        match self.parents.get_mut(self.parent_index.saturating_sub(1)) {
             Some(idx) => *idx = starting_data,
             // FIXME: what makes sense for this to return?
             None => return None,
@@ -277,11 +283,7 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
             self.parent_index,
             Node {
                 this: RawNode::new(starting_data),
-                parent: self
-                    .parent_index
-                    .checked_sub(1)
-                    .and_then(|idx| self.parents.get(idx))
-                    .map(|parent| RawNode::new(*parent)),
+                parent: self.parents.get(self.parent_index).map(|parent| RawNode::new(*parent)),
                 strings: self.parser.strings(),
                 _mode: core::marker::PhantomData,
             },
