@@ -4,6 +4,9 @@
 
 extern crate std;
 
+use nodes::NodeName;
+use properties::CellSizes;
+
 // use crate::{node::RawReg, *};
 use crate::*;
 
@@ -79,7 +82,18 @@ fn all_nodes() {
 2 uart@10000000
 2 poweroff
 2 reboot
-2 test@100000"
+2 test@100000
+2 pci@30000000
+2 virtio_mmio@10008000
+2 virtio_mmio@10007000
+2 virtio_mmio@10006000
+2 virtio_mmio@10005000
+2 virtio_mmio@10004000
+2 virtio_mmio@10003000
+2 virtio_mmio@10002000
+2 virtio_mmio@10001000
+2 plic@c000000
+2 clint@2000000"
     );
 }
 
@@ -118,15 +132,52 @@ fn finds_root_node_properties() {
 fn finds_child_of_root_node() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let root = fdt.root();
-    assert!(root.find_node("/cpus").is_some(), "couldn't find cpus node");
+    assert_eq!(
+        root.find_node("/cpus").unwrap().name(),
+        NodeName { name: "cpus", unit_address: None },
+        "couldn't find cpus node"
+    );
+
+    assert_eq!(
+        root.find_node("/cpus/cpu@0/interrupt-controller").unwrap().name(),
+        NodeName { name: "interrupt-controller", unit_address: None },
+        "couldn't find interrupt-controller node"
+    );
+
+    assert!(
+        root.find_node("/cpus/cpu@1/interrupt-controller").is_none(),
+        "couldn't find interrupt-controller node"
+    );
 }
 
 #[test]
 fn finds_child_with_unit_address() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let root = fdt.root();
-    assert!(root.find_node("/memory@80000000").is_some(), "couldn't find cpus node");
+    assert_eq!(
+        root.find_node("/memory@80000000").unwrap().name(),
+        NodeName { name: "memory", unit_address: Some("80000000") },
+        "couldn't find cpus node"
+    );
     assert!(root.find_node("/memory@80000001").is_none(), "didn't use unit address to filter!");
+}
+
+#[test]
+fn properties() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let test = fdt.root().find_node("/soc/test").unwrap();
+
+    let props =
+        test.properties().into_iter().map(|p| (p.name(), p.value())).collect::<std::vec::Vec<_>>();
+
+    assert_eq!(
+        props,
+        &[
+            ("phandle", &[0, 0, 0, 4][..]),
+            ("reg", &[0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0]),
+            ("compatible", b"sifive,test1\0sifive,test0\0syscon\0"),
+        ]
+    );
 }
 
 // #[test]
@@ -195,16 +246,19 @@ fn finds_child_with_unit_address() {
 //     assert!(res);
 // }
 
-// #[test]
-// fn parent_cell_sizes() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let regions = fdt.find_node("/memory").unwrap().reg().unwrap().collect::<std::vec::Vec<_>>();
+#[test]
+fn cell_sizes() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
 
-//     assert_eq!(
-//         regions,
-//         &[MemoryRegion { starting_address: 0x80000000 as *const u8, size: Some(0x20000000) }]
-//     );
-// }
+    let cpu_cs = fdt.root().find_node("/cpus").unwrap().property::<CellSizes>().unwrap();
+    assert_eq!(cpu_cs, CellSizes { address_cells: 1, size_cells: 0 });
+
+    let soc_sc = fdt.root().find_node("/soc").unwrap().property::<CellSizes>().unwrap();
+    let test_cs = fdt.root().find_node("/soc/test").unwrap().property::<CellSizes>().unwrap();
+    let pci_cs = fdt.root().find_node("/soc/pci").unwrap().property::<CellSizes>().unwrap();
+    assert_eq!(test_cs, soc_sc);
+    assert_ne!(pci_cs, soc_sc);
+}
 
 // #[test]
 // fn no_properties() {
