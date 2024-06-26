@@ -86,6 +86,7 @@ pub enum FdtError {
     ParseError(ParseError),
     MissingRequiredNode(&'static str),
     MissingRequiredProperty(&'static str),
+    InvalidPropertyValue,
 }
 
 impl From<ParseError> for FdtError {
@@ -106,6 +107,7 @@ impl core::fmt::Display for FdtError {
             FdtError::MissingRequiredProperty(name) => {
                 write!(f, "FDT node is missing a required property `{}`", name)
             }
+            FdtError::InvalidPropertyValue => write!(f, "FDT property value is invalid"),
         }
     }
 }
@@ -137,7 +139,7 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Fdt<'a, P> {
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct FdtHeader {
+pub struct FdtHeader {
     /// FDT header magic
     pub magic: u32,
     /// Total size in bytes of the FDT structure
@@ -514,20 +516,15 @@ impl<'a, P: ParserWithMode<'a>> Fdt<'a, P> {
         self.header.total_size as usize
     }
 
-    fn cstr_at_offset(&self, offset: usize) -> &'a core::ffi::CStr {
-        core::ffi::CStr::from_bytes_until_nul(&self.strings_block()[offset..])
-            .expect("no null terminating string on C str?")
+    pub fn header(&self) -> &FdtHeader {
+        &self.header
     }
 
-    fn str_at_offset(&self, offset: usize) -> &'a str {
-        self.cstr_at_offset(offset).to_str().expect("not utf-8 cstr")
-    }
-
-    fn strings_block(&self) -> &'a [u8] {
+    pub fn strings_block(&self) -> &'a [u8] {
         self.strings.0
     }
 
-    fn structs_block(&self) -> &'a [P::Granularity] {
+    pub fn structs_block(&self) -> &'a [P::Granularity] {
         self.structs
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     nodes::Node,
-    parsing::{unaligned::UnalignedParser, NoPanic, Parser},
+    parsing::{unaligned::UnalignedParser, BigEndianU32, NoPanic, Parser},
     FdtError,
 };
 
@@ -42,5 +42,19 @@ impl<'a> Property<'a> for CellSizes {
             address_cells: address_cells.unwrap_or(2),
             size_cells: size_cells.unwrap_or(2),
         }))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PHandle(BigEndianU32);
+
+impl<'a> Property<'a> for PHandle {
+    #[track_caller]
+    fn parse<P: Parser<'a>>(node: Node<'a, (P, NoPanic)>) -> Result<Option<Self>, FdtError> {
+        let Some(phandle) = node.properties()?.find("phandle")? else {
+            return Ok(None);
+        };
+
+        Ok(Some(PHandle(phandle.to()?)))
     }
 }

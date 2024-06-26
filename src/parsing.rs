@@ -9,7 +9,7 @@ use crate::{
     nodes::{Node, RawNode},
     FdtError, FdtHeader,
 };
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct BigEndianU32(u32);
 
@@ -83,7 +83,7 @@ impl<'a, T: Copy> Stream<'a, T> {
 
     #[inline(always)]
     pub(crate) fn advance(&mut self) -> Option<T> {
-        let ret = *self.0.get(0)?;
+        let ret = *self.0.first()?;
         self.0 = self.0.get(1..)?;
         Some(ret)
     }
@@ -465,7 +465,7 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
                 strings: self.strings(),
                 _mode: core::marker::PhantomData,
             }),
-            _ => return Err(FdtError::ParseError(ParseError::UnexpectedToken)),
+            _ => Err(FdtError::ParseError(ParseError::UnexpectedToken)),
         }
     }
 
