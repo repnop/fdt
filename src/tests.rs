@@ -25,7 +25,7 @@ impl<const N: usize> AlignArrayUp<N> {
             i += 1;
         }
 
-        return copy;
+        copy
     }
 }
 

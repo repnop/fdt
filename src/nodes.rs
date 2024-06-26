@@ -1,7 +1,9 @@
+use core::ffi::CStr;
+
 use crate::{
     parsing::{
-        aligned::AlignedParser, BigEndianToken, NoPanic, Panic, PanicMode, ParseError, Parser,
-        ParserWithMode, StringsBlock,
+        aligned::AlignedParser, BigEndianToken, BigEndianU32, NoPanic, Panic, PanicMode,
+        ParseError, Parser, ParserWithMode, StringsBlock,
     },
     properties::Property,
     FdtError,
@@ -186,7 +188,7 @@ impl<'a, P: ParserWithMode<'a>> Clone for Node<'a, P> {
 impl<'a, P: ParserWithMode<'a>> Copy for Node<'a, P> {}
 
 #[repr(transparent)]
-pub(crate) struct RawNode<Granularity = u32>([Granularity]);
+pub struct RawNode<Granularity = u32>([Granularity]);
 
 impl<Granularity> RawNode<Granularity> {
     pub(crate) fn new(data: &[Granularity]) -> &Self {
@@ -225,7 +227,7 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
             Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => {
                 return P::to_output(Ok(None))
             }
-            Err(e) => return P::to_output(Err(e.into())),
+            Err(e) => return P::to_output(Err(e)),
         }
 
         P::to_output(tryblock! {
@@ -242,8 +244,19 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
     }
 
     pub fn find(&self, name: &str) -> P::Output<Option<NodeProperty<'a>>> {
-        P::reverse_transpose(
-            self.iter().find(|p| P::ok_as_ref(p).map(|p| p.name == name).unwrap_or_default()),
+        let this: NodeProperties<'a, (P::Parser, NoPanic)> = NodeProperties {
+            data: self.data,
+            strings: self.strings,
+            _mode: core::marker::PhantomData,
+        };
+
+        P::to_output(
+            this.iter()
+                .find_map(|p| match p {
+                    Err(e) => Some(Err(e)),
+                    Ok(p) => (p.name == name).then_some(Ok(p)),
+                })
+                .transpose(),
         )
     }
 }
@@ -279,16 +292,47 @@ impl<'a, P: ParserWithMode<'a>> Iterator for NodePropertiesIter<'a, P> {
     }
 }
 
+pub struct InvalidPropertyValue;
+
+impl From<InvalidPropertyValue> for FdtError {
+    fn from(_: InvalidPropertyValue) -> Self {
+        FdtError::InvalidPropertyValue
+    }
+}
+
 pub trait Value<'a>: Sized {
-    fn parse(value: &'a [u8]) -> Option<Self>;
+    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue>;
 }
 
 impl<'a> Value<'a> for u32 {
-    fn parse(value: &'a [u8]) -> Option<Self> {
+    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
         match value {
-            [a, b, c, d, ..] => Some(u32::from_be_bytes([*a, *b, *c, *d])),
-            _ => None,
+            [a, b, c, d] => Ok(u32::from_be_bytes([*a, *b, *c, *d])),
+            _ => Err(InvalidPropertyValue),
         }
+    }
+}
+
+impl<'a> Value<'a> for BigEndianU32 {
+    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
+        match value {
+            [a, b, c, d] => Ok(BigEndianU32::from_be(u32::from_ne_bytes([*a, *b, *c, *d]))),
+            _ => Err(InvalidPropertyValue),
+        }
+    }
+}
+
+impl<'a> Value<'a> for &'a CStr {
+    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
+        CStr::from_bytes_until_nul(value).map_err(|_| InvalidPropertyValue)
+    }
+}
+
+impl<'a> Value<'a> for &'a str {
+    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
+        core::str::from_utf8(value)
+            .map(|s| s.trim_end_matches('\0'))
+            .map_err(|_| InvalidPropertyValue)
     }
 }
 
@@ -310,7 +354,7 @@ impl<'a> NodeProperty<'a> {
         self.value
     }
 
-    pub fn to<V: Value<'a>>(&self) -> Option<V> {
+    pub fn to<V: Value<'a>>(&self) -> Result<V, InvalidPropertyValue> {
         V::parse(self.value)
     }
 }
@@ -337,7 +381,7 @@ impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
             Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => {
                 return P::to_output(Ok(None))
             }
-            Err(e) => return P::to_output(Err(e.into())),
+            Err(e) => return P::to_output(Err(e)),
         }
 
         P::to_output(match parser.parse_node(Some(self.parent)) {
@@ -347,7 +391,7 @@ impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
                 Ok(Some(node))
             }
             Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => Ok(None),
-            Err(e) => Err(e.into()),
+            Err(e) => Err(e),
         })
     }
 
@@ -356,22 +400,37 @@ impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
         N: IntoSearchableNodeName<'n>,
         P: 'a,
     {
+        let this: NodeChildren<'a, (P::Parser, NoPanic)> = NodeChildren {
+            data: self.data,
+            parent: self.parent,
+            strings: self.strings,
+            _mode: core::marker::PhantomData,
+        };
+
         let name = name.into_searchable_node_name();
-        P::reverse_transpose(self.iter().find(|n| {
-            P::ok_as_ref(n)
-                .and_then(|n| P::ok(n.name()))
-                .map(|n| match name {
-                    SearchableNodeName::Base(base) => n.name == base,
-                    SearchableNodeName::WithUnitAddress(nn) => n == nn,
+        P::to_output(
+            this.iter()
+                .find_map(|n| match n {
+                    Err(e) => Some(Err(e)),
+                    Ok(node) => match node.name() {
+                        Err(e) => Some(Err(e)),
+                        Ok(nn) => match name {
+                            SearchableNodeName::Base(base) => (nn.name == base).then_some(Ok(node)),
+                            SearchableNodeName::WithUnitAddress(snn) => {
+                                (nn == snn).then_some(Ok(node))
+                            }
+                        },
+                    },
                 })
-                .unwrap_or_default()
-        }))
+                .map(|n| n.map(Node::alt))
+                .transpose(),
+        )
     }
 }
 
 impl<'a, P: ParserWithMode<'a>> Clone for NodeChildren<'a, P> {
     fn clone(&self) -> Self {
-        Self { _mode: self._mode, data: self.data, strings: self.strings, parent: self.parent }
+        *self
     }
 }
 

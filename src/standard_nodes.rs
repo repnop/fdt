@@ -4,12 +4,9 @@
 
 use crate::{
     nodes::{IntoSearchableNodeName, Node, RawNode, SearchableNodeName},
-    parsing::{
-        aligned::AlignedParser, BigEndianToken, BigEndianU32, BigEndianU64, NoPanic, Panic,
-        PanicMode, ParseError, Parser, ParserWithMode,
-    },
+    parsing::{aligned::AlignedParser, BigEndianToken, Panic, ParseError, Parser, ParserWithMode},
     properties::CellSizes,
-    tryblock, Fdt, FdtError,
+    tryblock, FdtError,
 };
 
 /// Represents the `/chosen` node with specific helper methods
@@ -17,20 +14,18 @@ pub struct Chosen<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     pub(crate) node: Node<'a, P>,
 }
 
-impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
+impl<'a, P: ParserWithMode<'a> + 'a> Chosen<'a, P> {
     /// Contains the bootargs, if they exist
     #[track_caller]
     pub fn bootargs(self) -> P::Output<Option<&'a str>> {
         P::to_output(crate::tryblock! {
             let node = self.node.fallible();
-            for prop in node.properties()?.into_iter() {
-                if let Ok(prop) = prop {
-                    if prop.name() == "bootargs" {
-                        return Ok(Some(
-                            core::str::from_utf8(&prop.value()[..prop.value().len() - 1])
-                                .map_err(|_| FdtError::ParseError(ParseError::InvalidCStrValue))?,
-                        ));
-                    }
+            for prop in node.properties()?.into_iter().flatten() {
+                if prop.name() == "bootargs" {
+                    return Ok(Some(
+                        core::str::from_utf8(&prop.value()[..prop.value().len() - 1])
+                            .map_err(|_| FdtError::ParseError(ParseError::InvalidCStrValue))?,
+                    ));
                 }
             }
 
@@ -38,43 +33,60 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
         })
     }
 
-    /// Searches for the node representing `stdout`, if the property exists,
-    /// attempting to resolve aliases if the node name doesn't exist as-is
-    // pub fn stdout(self) -> Mode::Output<Option<StdInOutPath<'a, P>>> {
-    //     P::to_output(crate::tryblock! {
-    //         Ok(
-    //             P::to_result(self.node.properties())?
-    //                 .find(|n| n.name == "stdout-path")
-    //                 .and_then(|n| core::str::from_utf8(&n.value()[..n.value().len() - 1]).ok())
-    //                 .map(Self::split_stdinout_property)
-    //                 .and_then(|(name, params)| {
-    //                     self.node..find_node(name).map(|node| StdInOutPath::new(node, params))
-    //                 })
-    //         )
-    //     })
-    // }
+    /// Looks up the `stdout-path` property and returns the [`StdInOutPath`]
+    /// representing the path. The path may be an alias and require being
+    /// resolved with [`Alias::resolve`] before being used in conjunction with
+    /// [`Root::find_node`]. For more information about the path parameters, see
+    /// [`StdInOutPath::params`].
+    #[track_caller]
+    pub fn stdout(self) -> P::Output<Option<StdInOutPath<'a>>> {
+        P::to_output(crate::tryblock! {
+            let node = self.node.fallible();
+            node.properties()?.into_iter().find_map(|n| match n {
+                Err(e) => Some(Err(e)),
+                Ok(property) => match property.name() == "stdout-path" {
+                    false => None,
+                    true => Some(
+                        property
+                            .to::<&'a str>()
+                            .map_err(Into::into)
+                            .map(|s| {
+                                let (path, params) = Self::split_stdinout_property(s);
+                                StdInOutPath { path, params }
+                            })
+                    ),
+                },
+            }).transpose()
+        })
+    }
 
-    /// Searches for the node representing `stdout`, if the property exists,
-    /// attempting to resolve aliases if the node name doesn't exist as-is. If
-    /// no `stdin` property exists, but `stdout` is present, it will return the
-    /// node specified by the `stdout` property.
-    // pub fn stdin(self) -> Option<StdInOutPath<'b, 'a>> {
-    //     self.node
-    //         .properties()
-    //         .find(|n| n.name == "stdin-path")
-    //         .and_then(|n| core::str::from_utf8(&n.value[..n.value.len() - 1]).ok())
-    //         .map(Self::split_stdinout_property)
-    //         .and_then(|(name, params)| {
-    //             self.node.header.find_node(name).map(|node| StdInOutPath::new(node, params))
-    //         })
-    //         .or_else(|| self.stdout())
-    // }
+    /// Looks up the `stdin-path` property and returns the [`StdInOutPath`]
+    /// representing the path. The path may be an alias and require being
+    /// resolved with [`Alias::resolve`] before being used in conjunction with
+    /// [`Root::find_node`]. For more information about the path parameters, see
+    /// [`StdInOutPath::params`].
+    #[track_caller]
+    pub fn stdin(self) -> P::Output<Option<StdInOutPath<'a>>> {
+        P::to_output(crate::tryblock! {
+            let node = self.node.fallible();
+            node.properties()?.into_iter().find_map(|n| match n {
+                Err(e) => Some(Err(e)),
+                Ok(property) => match property.name() == "stdin-path" {
+                    false => None,
+                    true => Some(
+                        property
+                            .to::<&'a str>()
+                            .map_err(Into::into)
+                            .map(|s| {
+                                let (path, params) = Self::split_stdinout_property(s);
+                                StdInOutPath { path, params }
+                            })
+                    ),
+                },
+            }).transpose()
+        })
+    }
 
-    /// Splits a stdout-path or stdin-path property into its node path and optional parameters which are seperated by a colon ':'.
-    /// see https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node
-    /// example "/soc/uart@10000000" => ("/soc/uart@10000000", None)
-    /// example "/soc/uart@10000000:115200" => ("/soc/uart@10000000", Some("115200"))
-    /// example "/soc/uart@10000000:115200n8r" => ("/soc/uart@10000000", Some("115200n8r"))
     fn split_stdinout_property(property: &str) -> (&str, Option<&str>) {
         property
             .split_once(':')
@@ -84,34 +96,51 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
 
 impl<'a, P: ParserWithMode<'a>> Clone for Chosen<'a, P> {
     fn clone(&self) -> Self {
-        Self { node: self.node }
+        *self
     }
 }
 
 impl<'a, P: ParserWithMode<'a>> Copy for Chosen<'a, P> {}
 
-pub struct StdInOutPath<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
-    pub(crate) node: Node<'a, P>,
-    pub(crate) params: Option<&'a str>,
+pub struct StdInOutPath<'a> {
+    path: &'a str,
+    params: Option<&'a str>,
 }
 
-// impl<'b, 'a> StdInOutPath<'b, 'a> {
-// fn new(node: FdtNode<'b, 'a>, params: Option<&'a str>) -> Self {
-//     Self { node, params }
-// }
+impl<'a> StdInOutPath<'a> {
+    /// Path to the node representing the stdin/stdout device. This node path
+    /// may be an alias, which can be resolved with [`Aliases::resolve`]. To be
+    /// used in conjunction with [`Root::find_node`].
+    pub fn path(&self) -> &'a str {
+        self.path
+    }
 
-// pub fn name(&self) -> &'a str {
-//     self.node.name
-// }
-
-// pub fn node(&self) -> FdtNode<'b, 'a> {
-//     self.node
-// }
-
-// pub fn params(&self) -> Option<&'a str> {
-//     self.params
-// }
-// }
+    /// Optional parameters specified by the stdin/stdout property value. See
+    /// https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node
+    ///
+    /// Example:
+    /// ```
+    /// / {
+    ///     chosen {
+    ///         stdout-path = "/soc/uart@10000000:115200";
+    ///         stdin-path = "/soc/uart@10000000";
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// ```rust,norun
+    /// # let fdt = Fdt::new_unaligned(include_bytes!("./dtb/test.dtb")).unwrap();
+    /// # let chosen = fdt.root().chosen();
+    /// let stdout = chosen.stdout().unwrap();
+    /// let stdin = chosen.stdin().unwrap();
+    ///
+    /// assert_eq!((stdout.path(), stdout.params()), ("soc/uart@10000000", None));
+    /// assert_eq!((stdin.path(), stdin.params()), ("soc/uart@10000000", Some("115200")));
+    /// ```
+    pub fn params(&self) -> Option<&'a str> {
+        self.params
+    }
+}
 
 /// Represents the root (`/`) node with specific helper methods
 pub struct Root<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
@@ -120,23 +149,70 @@ pub struct Root<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
 
 impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// Root node cell sizes
+    #[track_caller]
     pub fn cell_sizes(self) -> P::Output<CellSizes> {
         P::transpose(self.node.property::<CellSizes>()).unwrap()
     }
 
-    /// `model` property
-    // pub fn model(self) -> &'a str {
-    //     self.node
-    //         .properties()
-    //         .find(|p| p.name == "model")
-    //         .and_then(|p| core::str::from_utf8(p.value).map(|s| s.trim_end_matches('\0')).ok())
-    //         .unwrap()
-    // }
+    /// [Devicetree 3.2. Root
+    /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#root-node)
+    ///
+    /// Specifies a string that uniquely identifies the model of the system
+    /// board. The recommended format is "manufacturer,model-number".
+    #[track_caller]
+    pub fn model(self) -> P::Output<&'a str> {
+        P::to_output(crate::tryblock! {
+            let node = self.node.fallible();
+            node
+                .properties()?
+                .into_iter()
+                .find_map(|n| match n {
+                    Err(e) => Some(Err(e)),
+                    Ok(property) => match property.name() == "model" {
+                        false => None,
+                        true => Some(
+                            property
+                                .to::<&'a str>()
+                                .map_err(Into::into)
+                        ),
+                    },
+                })
+                .transpose()?
+                .ok_or(FdtError::MissingRequiredProperty("model"))
+        })
+    }
 
-    /// `compatible` property
-    // pub fn compatible(self) -> Compatible<'a> {
-    //     self.node.compatible().unwrap()
-    // }
+    /// [Devicetree 3.2. Root
+    /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#root-node)
+    ///
+    /// Specifies a list of platform architectures with which this platform is
+    /// compatible. This property can be used by operating systems in selecting
+    /// platform specific code. The recommended form of the property value is:
+    /// `"manufacturer,model"`
+    ///
+    /// For example: `compatible = "fsl,mpc8572ds"`
+    pub fn compatible(self) -> P::Output<Compatible<'a>> {
+        P::to_output(crate::tryblock! {
+            let node = self.node.fallible();
+            node
+                .properties()?
+                .into_iter()
+                .find_map(|n| match n {
+                    Err(e) => Some(Err(e)),
+                    Ok(property) => match property.name() == "compatible" {
+                        false => None,
+                        true => Some(
+                            property
+                                .to::<&'a str>()
+                                .map(|string| Compatible { string })
+                                .map_err(Into::into)
+                        ),
+                    },
+                })
+                .transpose()?
+                .ok_or(FdtError::MissingRequiredProperty("compatible"))
+        })
+    }
 
     /// Returns an iterator over all of the available properties
     // pub fn properties(self) -> impl Iterator<Item = NodeProperty<'a>> + 'a {
@@ -245,20 +321,13 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
 
     #[track_caller]
     fn next(&mut self) -> Option<Self::Item> {
-        // BUG HERE: needs to properly track the depth with `parent_index`
         while let Ok(BigEndianToken::END_NODE) = self.parser.peek_token() {
             let _ = self.parser.advance_token();
             self.parent_index = self.parent_index.saturating_sub(1);
-            #[cfg(test)]
-            std::println!("subtracting parent index: {}", self.parent_index);
         }
 
         match self.parser.advance_token() {
-            Ok(BigEndianToken::BEGIN_NODE) => {
-                self.parent_index += 1;
-                #[cfg(test)]
-                std::println!("incrementing parent index: {}", self.parent_index);
-            }
+            Ok(BigEndianToken::BEGIN_NODE) => self.parent_index += 1,
             Ok(BigEndianToken::END)
             | Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => return None,
             Ok(_) => {
@@ -269,21 +338,17 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
 
         let starting_data = self.parser.data();
 
-        #[cfg(test)]
-        std::println!("for: {}", self.parser.clone().advance_cstr().unwrap().to_str().unwrap());
-
         match self.parents.get_mut(self.parent_index.saturating_sub(1)) {
             Some(idx) => *idx = starting_data,
             // FIXME: what makes sense for this to return?
             None => return None,
         }
-        // self.parent_index += 1;
 
         let node = Some(P::to_output(Ok((
             self.parent_index,
             Node {
                 this: RawNode::new(starting_data),
-                parent: self.parents.get(self.parent_index).map(|parent| RawNode::new(*parent)),
+                parent: self.parents.get(self.parent_index).map(|parent| RawNode::new(parent)),
                 strings: self.parser.strings(),
                 _mode: core::marker::PhantomData,
             },
@@ -432,38 +497,29 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
 /// Represents the `compatible` property of a node
 #[derive(Clone, Copy)]
 pub struct Compatible<'a> {
-    pub(crate) data: &'a [u8],
+    pub(crate) string: &'a str,
 }
 
 impl<'a> Compatible<'a> {
     /// First compatible string
     pub fn first(self) -> &'a str {
-        core::ffi::CStr::from_bytes_until_nul(self.data).expect("expected C str").to_str().unwrap()
+        self.string.split('\0').next().unwrap_or(self.string)
     }
 
     /// Returns an iterator over all available compatible strings
-    pub fn all(self) -> impl Iterator<Item = &'a str> {
-        let mut data = self.data;
-        core::iter::from_fn(move || {
-            if data.is_empty() {
-                return None;
-            }
+    pub fn all(self) -> CompatibleIter<'a> {
+        CompatibleIter { iter: self.string.split('\0') }
+    }
+}
 
-            match data.iter().position(|b| *b == b'\0') {
-                Some(idx) => {
-                    let ret = Some(core::str::from_utf8(&data[..idx]).ok()?);
-                    data = &data[idx + 1..];
+pub struct CompatibleIter<'a> {
+    iter: core::str::Split<'a, char>,
+}
 
-                    ret
-                }
-                None => {
-                    let ret = Some(core::str::from_utf8(data).ok()?);
-                    data = &[];
-
-                    ret
-                }
-            }
-        })
+impl<'a> Iterator for CompatibleIter<'a> {
+    type Item = &'a str;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
     }
 }
 
