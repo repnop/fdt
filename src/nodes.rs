@@ -1,11 +1,9 @@
-use core::ffi::CStr;
-
 use crate::{
     parsing::{
-        aligned::AlignedParser, BigEndianToken, BigEndianU32, NoPanic, Panic, PanicMode,
-        ParseError, Parser, ParserWithMode, StringsBlock,
+        aligned::AlignedParser, BigEndianToken, NoPanic, Panic, PanicMode, ParseError, Parser,
+        ParserWithMode, StringsBlock, StructsBlock,
     },
-    properties::Property,
+    properties::{InvalidPropertyValue, Property, PropertyValue},
     FdtError,
 };
 
@@ -74,6 +72,7 @@ pub struct Node<'a, P: ParserWithMode<'a>> {
     pub(crate) this: &'a RawNode<<P as Parser<'a>>::Granularity>,
     pub(crate) parent: Option<&'a RawNode<<P as Parser<'a>>::Granularity>>,
     pub(crate) strings: StringsBlock<'a>,
+    pub(crate) structs: StructsBlock<'a, <P as Parser<'a>>::Granularity>,
     pub(crate) _mode: core::marker::PhantomData<*mut P>,
 }
 
@@ -84,6 +83,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
             this: self.this,
             parent: self.parent,
             strings: self.strings,
+            structs: self.structs,
             _mode: core::marker::PhantomData,
         }
     }
@@ -94,6 +94,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
             this: self.this,
             parent: self.parent,
             strings: self.strings,
+            structs: self.structs,
             _mode: core::marker::PhantomData,
         }
     }
@@ -101,7 +102,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
     #[inline]
     pub fn name(&self) -> <P as PanicMode>::Output<NodeName<'a>> {
         P::to_output(
-            P::new(&self.this.0, self.strings.0)
+            P::new(&self.this.0, self.strings, self.structs)
                 .advance_cstr()
                 .and_then(|s| {
                     s.to_str().map_err(|_| FdtError::ParseError(ParseError::InvalidCStrValue))
@@ -119,12 +120,13 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
 
     #[inline]
     pub fn properties(&self) -> P::Output<NodeProperties<'a, P>> {
-        let mut parser = P::new(&self.this.0, self.strings.0);
+        let mut parser = P::new(&self.this.0, self.strings, self.structs);
         let res = parser.advance_cstr();
 
         P::to_output(res.map(|_| NodeProperties {
             data: parser.data(),
             strings: self.strings,
+            structs: self.structs,
             _mode: core::marker::PhantomData,
         }))
     }
@@ -144,7 +146,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
     #[inline]
     pub fn children(&self) -> P::Output<NodeChildren<'a, P>> {
         P::to_output(tryblock! {
-            let mut parser = P::new(&self.this.0, self.strings.0);
+            let mut parser = P::new(&self.this.0, self.strings, self.structs);
             parser.advance_cstr()?;
             while let BigEndianToken::PROP = parser.peek_token()? {
                 parser.parse_raw_property()?;
@@ -154,6 +156,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
                 data: parser.data(),
                 parent: self.this,
                 strings: self.strings,
+                structs: self.structs,
                 _mode: core::marker::PhantomData,
             })
         })
@@ -165,6 +168,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
             this: parent,
             parent: None,
             strings: self.strings,
+            structs: self.structs,
             _mode: core::marker::PhantomData,
         })
     }
@@ -205,6 +209,7 @@ impl<Granularity> RawNode<Granularity> {
 pub struct NodeProperties<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     data: &'a [<P as Parser<'a>>::Granularity],
     strings: StringsBlock<'a>,
+    structs: StructsBlock<'a, <P as Parser<'a>>::Granularity>,
     _mode: core::marker::PhantomData<*mut P>,
 }
 
@@ -214,7 +219,7 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
     }
 
     pub fn advance(&mut self) -> P::Output<Option<NodeProperty<'a>>> {
-        let mut parser = P::new(self.data, self.strings.0);
+        let mut parser = P::new(self.data, self.strings, self.structs);
 
         match parser.peek_token() {
             Ok(BigEndianToken::PROP) => {}
@@ -247,6 +252,7 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
         let this: NodeProperties<'a, (P::Parser, NoPanic)> = NodeProperties {
             data: self.data,
             strings: self.strings,
+            structs: self.structs,
             _mode: core::marker::PhantomData,
         };
 
@@ -292,50 +298,6 @@ impl<'a, P: ParserWithMode<'a>> Iterator for NodePropertiesIter<'a, P> {
     }
 }
 
-pub struct InvalidPropertyValue;
-
-impl From<InvalidPropertyValue> for FdtError {
-    fn from(_: InvalidPropertyValue) -> Self {
-        FdtError::InvalidPropertyValue
-    }
-}
-
-pub trait Value<'a>: Sized {
-    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue>;
-}
-
-impl<'a> Value<'a> for u32 {
-    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
-        match value {
-            [a, b, c, d] => Ok(u32::from_be_bytes([*a, *b, *c, *d])),
-            _ => Err(InvalidPropertyValue),
-        }
-    }
-}
-
-impl<'a> Value<'a> for BigEndianU32 {
-    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
-        match value {
-            [a, b, c, d] => Ok(BigEndianU32::from_be(u32::from_ne_bytes([*a, *b, *c, *d]))),
-            _ => Err(InvalidPropertyValue),
-        }
-    }
-}
-
-impl<'a> Value<'a> for &'a CStr {
-    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
-        CStr::from_bytes_until_nul(value).map_err(|_| InvalidPropertyValue)
-    }
-}
-
-impl<'a> Value<'a> for &'a str {
-    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
-        core::str::from_utf8(value)
-            .map(|s| s.trim_end_matches('\0'))
-            .map_err(|_| InvalidPropertyValue)
-    }
-}
-
 pub struct NodeProperty<'a> {
     name: &'a str,
     value: &'a [u8],
@@ -354,7 +316,7 @@ impl<'a> NodeProperty<'a> {
         self.value
     }
 
-    pub fn to<V: Value<'a>>(&self) -> Result<V, InvalidPropertyValue> {
+    pub fn to<V: PropertyValue<'a>>(&self) -> Result<V, InvalidPropertyValue> {
         V::parse(self.value)
     }
 }
@@ -363,6 +325,7 @@ pub struct NodeChildren<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> 
     data: &'a [<P as Parser<'a>>::Granularity],
     parent: &'a RawNode<<P as Parser<'a>>::Granularity>,
     strings: StringsBlock<'a>,
+    structs: StructsBlock<'a, <P as Parser<'a>>::Granularity>,
     _mode: core::marker::PhantomData<*mut P>,
 }
 
@@ -372,7 +335,7 @@ impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
     }
 
     pub fn advance(&mut self) -> P::Output<Option<Node<'a, P>>> {
-        let mut parser = P::new(self.data, self.strings.0);
+        let mut parser = P::new(self.data, self.strings, self.structs);
 
         match parser.peek_token() {
             Ok(BigEndianToken::BEGIN_NODE) => {}
@@ -404,6 +367,7 @@ impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
             data: self.data,
             parent: self.parent,
             strings: self.strings,
+            structs: self.structs,
             _mode: core::marker::PhantomData,
         };
 

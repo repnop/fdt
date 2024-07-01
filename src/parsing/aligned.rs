@@ -4,16 +4,20 @@
 
 use crate::FdtError;
 
-use super::{BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock};
+use super::{
+    BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock,
+    StructsBlock,
+};
 
 pub struct AlignedParser<'a> {
     stream: Stream<'a, u32>,
     strings: StringsBlock<'a>,
+    structs: StructsBlock<'a, u32>,
 }
 
 impl Clone for AlignedParser<'_> {
     fn clone(&self) -> Self {
-        Self { stream: self.stream.clone(), strings: self.strings }
+        Self { stream: self.stream.clone(), strings: self.strings, structs: self.structs }
     }
 }
 
@@ -21,8 +25,12 @@ impl crate::sealed::Sealed for AlignedParser<'_> {}
 impl<'a> Parser<'a> for AlignedParser<'a> {
     type Granularity = u32;
 
-    fn new(data: &'a [Self::Granularity], strings: &'a [u8]) -> Self {
-        Self { stream: Stream::new(data), strings: StringsBlock(strings) }
+    fn new(
+        data: &'a [Self::Granularity],
+        strings: StringsBlock<'a>,
+        structs: StructsBlock<'a, Self::Granularity>,
+    ) -> Self {
+        Self { stream: Stream::new(data), strings, structs }
     }
 
     fn data(&self) -> &'a [Self::Granularity] {
@@ -41,6 +49,10 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
 
     fn strings(&self) -> super::StringsBlock<'a> {
         self.strings
+    }
+
+    fn structs(&self) -> StructsBlock<'a, Self::Granularity> {
+        self.structs
     }
 
     fn advance_token(&mut self) -> Result<BigEndianToken, FdtError> {
@@ -114,7 +126,8 @@ mod tests {
         let n = BigEndianU64::from_ne(0xF00DCAFEDEADFEED);
         let mut parser = AlignedParser::new(
             unsafe { core::slice::from_raw_parts(&n as *const BigEndianU64 as *const u32, 2) },
-            &[],
+            StringsBlock(&[]),
+            StructsBlock(&[]),
         );
         let m = parser.advance_u64().unwrap();
 
