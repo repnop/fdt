@@ -224,8 +224,12 @@ impl<'a, T: Parser<'a>, U: PanicMode> crate::sealed::Sealed for (T, U) {}
 impl<'a, T: Parser<'a>, U: PanicMode + Clone + Default> Parser<'a> for (T, U) {
     type Granularity = T::Granularity;
 
-    fn new(data: &'a [Self::Granularity], strings: &'a [u8]) -> Self {
-        (T::new(data, strings), U::default())
+    fn new(
+        data: &'a [Self::Granularity],
+        strings: StringsBlock<'a>,
+        structs: StructsBlock<'a, Self::Granularity>,
+    ) -> Self {
+        (T::new(data, strings, structs), U::default())
     }
 
     fn data(&self) -> &'a [Self::Granularity] {
@@ -238,6 +242,10 @@ impl<'a, T: Parser<'a>, U: PanicMode + Clone + Default> Parser<'a> for (T, U) {
 
     fn strings(&self) -> StringsBlock<'a> {
         self.0.strings()
+    }
+
+    fn structs(&self) -> StructsBlock<'a, Self::Granularity> {
+        self.0.structs()
     }
 
     fn advance_token(&mut self) -> Result<BigEndianToken, FdtError> {
@@ -304,10 +312,15 @@ impl<'a, T: Parser<'a>, U: PanicMode + Clone + Default + 'static> ParserWithMode
 pub trait Parser<'a>: crate::sealed::Sealed + Clone {
     type Granularity: Copy;
 
-    fn new(data: &'a [Self::Granularity], strings: &'a [u8]) -> Self;
+    fn new(
+        data: &'a [Self::Granularity],
+        strings: StringsBlock<'a>,
+        structs: StructsBlock<'a, Self::Granularity>,
+    ) -> Self;
     fn data(&self) -> &'a [Self::Granularity];
     fn byte_data(&self) -> &'a [u8];
     fn strings(&self) -> StringsBlock<'a>;
+    fn structs(&self) -> StructsBlock<'a, Self::Granularity>;
 
     fn advance_token(&mut self) -> Result<BigEndianToken, FdtError>;
     fn peek_token(&mut self) -> Result<BigEndianToken, FdtError> {
@@ -381,6 +394,7 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
                     this: RawNode::new(&starting_data[..starting_data.len() - 4]),
                     parent: None,
                     strings: self.strings(),
+                    structs: self.structs(),
                     _mode: core::marker::PhantomData,
                 })
             }
@@ -400,6 +414,7 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
                     this: RawNode::new(&starting_data[..starting_data.len() - 1]),
                     parent: None,
                     strings: self.strings(),
+                    structs: self.structs(),
                     _mode: core::marker::PhantomData,
                 })
             }
@@ -463,6 +478,7 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
                 ),
                 parent,
                 strings: self.strings(),
+                structs: self.structs(),
                 _mode: core::marker::PhantomData,
             }),
             _ => Err(FdtError::ParseError(ParseError::UnexpectedToken)),
@@ -502,3 +518,7 @@ impl<'a> StringsBlock<'a> {
         .map_err(|_| ParseError::InvalidCStrValue.into())
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct StructsBlock<'a, G>(pub(crate) &'a [G]);

@@ -4,16 +4,20 @@
 
 use crate::FdtError;
 
-use super::{BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock};
+use super::{
+    BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock,
+    StructsBlock,
+};
 
 pub struct UnalignedParser<'a> {
     stream: Stream<'a, u8>,
     strings: StringsBlock<'a>,
+    structs: StructsBlock<'a, u8>,
 }
 
 impl Clone for UnalignedParser<'_> {
     fn clone(&self) -> Self {
-        Self { stream: self.stream.clone(), strings: self.strings }
+        Self { stream: self.stream.clone(), strings: self.strings, structs: self.structs }
     }
 }
 
@@ -21,8 +25,12 @@ impl crate::sealed::Sealed for UnalignedParser<'_> {}
 impl<'a> Parser<'a> for UnalignedParser<'a> {
     type Granularity = u8;
 
-    fn new(data: &'a [Self::Granularity], strings: &'a [u8]) -> Self {
-        Self { stream: Stream::new(data), strings: StringsBlock(strings) }
+    fn new(
+        data: &'a [Self::Granularity],
+        strings: StringsBlock<'a>,
+        structs: StructsBlock<'a, Self::Granularity>,
+    ) -> Self {
+        Self { stream: Stream::new(data), strings, structs }
     }
 
     fn data(&self) -> &'a [Self::Granularity] {
@@ -35,6 +43,10 @@ impl<'a> Parser<'a> for UnalignedParser<'a> {
 
     fn strings(&self) -> super::StringsBlock<'a> {
         self.strings
+    }
+
+    fn structs(&self) -> StructsBlock<'a, Self::Granularity> {
+        self.structs
     }
 
     fn advance_token(&mut self) -> Result<BigEndianToken, FdtError> {
@@ -101,7 +113,8 @@ mod tests {
         let n = BigEndianU32::from_ne(0xF00DCAFE);
         let mut parser = UnalignedParser::new(
             unsafe { core::slice::from_raw_parts(&n as *const BigEndianU32 as *const u8, 4) },
-            &[],
+            StringsBlock(&[]),
+            StructsBlock(&[]),
         );
         let m = parser.advance_u32().unwrap();
 
@@ -113,7 +126,8 @@ mod tests {
         let n = BigEndianU64::from_ne(0xF00DCAFEDEADFEED);
         let mut parser = UnalignedParser::new(
             unsafe { core::slice::from_raw_parts(&n as *const BigEndianU64 as *const u8, 8) },
-            &[],
+            StringsBlock(&[]),
+            StructsBlock(&[]),
         );
         let m = parser.advance_u64().unwrap();
 

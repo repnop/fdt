@@ -5,7 +5,7 @@
 use crate::{
     nodes::{IntoSearchableNodeName, Node, RawNode, SearchableNodeName},
     parsing::{aligned::AlignedParser, BigEndianToken, Panic, ParseError, Parser, ParserWithMode},
-    properties::CellSizes,
+    properties::{CellSizes, Compatible, PHandle, Property},
     tryblock, FdtError,
 };
 
@@ -119,7 +119,8 @@ impl<'a> StdInOutPath<'a> {
     /// https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node
     ///
     /// Example:
-    /// ```
+    ///
+    /// ```dts
     /// / {
     ///     chosen {
     ///         stdout-path = "/soc/uart@10000000:115200";
@@ -185,6 +186,8 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// [Devicetree 3.2. Root
     /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#root-node)
     ///
+    /// **Required**
+    ///
     /// Specifies a list of platform architectures with which this platform is
     /// compatible. This property can be used by operating systems in selecting
     /// platform specific code. The recommended form of the property value is:
@@ -193,24 +196,8 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// For example: `compatible = "fsl,mpc8572ds"`
     pub fn compatible(self) -> P::Output<Compatible<'a>> {
         P::to_output(crate::tryblock! {
-            let node = self.node.fallible();
-            node
-                .properties()?
-                .into_iter()
-                .find_map(|n| match n {
-                    Err(e) => Some(Err(e)),
-                    Ok(property) => match property.name() == "compatible" {
-                        false => None,
-                        true => Some(
-                            property
-                                .to::<&'a str>()
-                                .map(|string| Compatible { string })
-                                .map_err(Into::into)
-                        ),
-                    },
-                })
-                .transpose()?
-                .ok_or(FdtError::MissingRequiredProperty("compatible"))
+                Compatible::parse(self.node.fallible())?
+                    .ok_or(FdtError::MissingRequiredProperty("compatible"))
         })
     }
 
@@ -223,6 +210,21 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     // pub fn property(self, name: &str) -> Option<NodeProperty<'a>> {
     //     self.node.properties().find(|p| p.name == name)
     // }
+
+    #[track_caller]
+    pub fn resolve_phandle(self, phandle: PHandle) -> P::Output<Option<Node<'a, P>>> {
+        P::to_output(crate::tryblock! {
+            let this = Root { node: self.node.fallible() };
+            for node in this.all_nodes()? {
+                let (_, node) = node?;
+                if node.property::<PHandle>()? == Some(phandle) {
+                    return Ok(Some(node.alt()));
+                }
+            }
+
+            Ok(None)
+        })
+    }
 
     #[track_caller]
     pub fn find_node(self, path: &str) -> P::Output<Option<Node<'a, P>>>
@@ -278,7 +280,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     }
 
     pub fn all_nodes(self) -> P::Output<AllNodesIterator<'a, P>> {
-        let mut parser = P::new(self.node.this.as_slice(), self.node.strings.0);
+        let mut parser = P::new(self.node.this.as_slice(), self.node.strings, self.node.structs);
         let res = tryblock!({
             parser.advance_cstr()?;
 
@@ -350,6 +352,7 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
                 this: RawNode::new(starting_data),
                 parent: self.parents.get(self.parent_index).map(|parent| RawNode::new(parent)),
                 strings: self.parser.strings(),
+                structs: self.parser.structs(),
                 _mode: core::marker::PhantomData,
             },
         ))));
@@ -493,35 +496,6 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
 //         })
 //     }
 // }
-
-/// Represents the `compatible` property of a node
-#[derive(Clone, Copy)]
-pub struct Compatible<'a> {
-    pub(crate) string: &'a str,
-}
-
-impl<'a> Compatible<'a> {
-    /// First compatible string
-    pub fn first(self) -> &'a str {
-        self.string.split('\0').next().unwrap_or(self.string)
-    }
-
-    /// Returns an iterator over all available compatible strings
-    pub fn all(self) -> CompatibleIter<'a> {
-        CompatibleIter { iter: self.string.split('\0') }
-    }
-}
-
-pub struct CompatibleIter<'a> {
-    iter: core::str::Split<'a, char>,
-}
-
-impl<'a> Iterator for CompatibleIter<'a> {
-    type Item = &'a str;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
-    }
-}
 
 /// Represents the `/memory` node with specific helper methods
 // #[derive(Debug, Clone, Copy)]

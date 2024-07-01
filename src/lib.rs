@@ -66,7 +66,7 @@ mod util;
 
 use parsing::{
     aligned::AlignedParser, unaligned::UnalignedParser, NoPanic, Panic, ParseError, Parser,
-    ParserWithMode, StringsBlock,
+    ParserWithMode, StringsBlock, StructsBlock,
 };
 use standard_nodes::Root;
 // use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
@@ -120,9 +120,8 @@ impl core::fmt::Display for FdtError {
 #[derive(Clone, Copy)]
 pub struct Fdt<'a, P: ParserWithMode<'a>> {
     parser: P,
-    strings: StringsBlock<'a>,
-    structs: &'a [P::Granularity],
     header: FdtHeader,
+    _lifetime: core::marker::PhantomData<&'a [u8]>,
 }
 
 impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Fdt<'a, P> {
@@ -172,11 +171,12 @@ impl FdtHeader {
 impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
     /// Construct a new `Fdt` from a byte buffer
     pub fn new_unaligned(data: &'a [u8]) -> Result<Self, FdtError> {
-        let mut parser = UnalignedParser::new(data, &[]);
+        let mut parser = UnalignedParser::new(data, StringsBlock(&[]), StructsBlock(&[]));
         let header = parser.parse_header()?;
         let strings =
             StringsBlock(&data[header.strings_offset as usize..][..header.strings_size as usize]);
-        let structs = &data[header.structs_offset as usize..][..header.structs_size as usize];
+        let structs =
+            StructsBlock(&data[header.structs_offset as usize..][..header.structs_size as usize]);
 
         if !header.valid_magic() {
             return Err(FdtError::BadMagic);
@@ -186,9 +186,8 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
 
         Ok(Self {
             header,
-            parser: (UnalignedParser::new(data, strings.0), Panic),
-            strings,
-            structs,
+            parser: (UnalignedParser::new(structs.0, strings, structs), Panic),
+            _lifetime: core::marker::PhantomData,
         })
     }
 
@@ -201,9 +200,12 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
         }
 
         let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
-        let real_size =
-            usize::try_from(UnalignedParser::new(tmp_header, &[]).parse_header()?.total_size)
-                .map_err(|_| ParseError::NumericConversionError)?;
+        let real_size = usize::try_from(
+            UnalignedParser::new(tmp_header, StringsBlock(&[]), StructsBlock(&[]))
+                .parse_header()?
+                .total_size,
+        )
+        .map_err(|_| ParseError::NumericConversionError)?;
 
         Self::new_unaligned(core::slice::from_raw_parts(ptr, real_size))
     }
@@ -212,7 +214,7 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
 impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
     /// Construct a new `Fdt` from a `u32`-aligned buffer
     pub fn new(data: &'a [u32]) -> Result<Self, FdtError> {
-        let mut parser = AlignedParser::new(data, &[]);
+        let mut parser = AlignedParser::new(data, StringsBlock(&[]), StructsBlock(&[]));
         let header = parser.parse_header()?;
 
         let strings_start = header.strings_offset as usize;
@@ -225,9 +227,10 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
 
         let structs_start = header.structs_offset as usize / 4;
         let structs_end = structs_start + (header.structs_size as usize / 4);
-        let structs = data
-            .get(structs_start..structs_end)
-            .ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))?;
+        let structs = StructsBlock(
+            data.get(structs_start..structs_end)
+                .ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))?,
+        );
 
         if !header.valid_magic() {
             return Err(FdtError::BadMagic);
@@ -237,9 +240,8 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
 
         Ok(Self {
             header,
-            parser: (AlignedParser::new(structs, strings.0), Panic),
-            strings,
-            structs,
+            parser: (AlignedParser::new(structs.0, strings, structs), Panic),
+            _lifetime: core::marker::PhantomData,
         })
     }
 
@@ -252,9 +254,12 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
         }
 
         let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
-        let real_size =
-            usize::try_from(AlignedParser::new(tmp_header, &[]).parse_header()?.total_size)
-                .map_err(|_| ParseError::NumericConversionError)?;
+        let real_size = usize::try_from(
+            AlignedParser::new(tmp_header, StringsBlock(&[]), StructsBlock(&[]))
+                .parse_header()?
+                .total_size,
+        )
+        .map_err(|_| ParseError::NumericConversionError)?;
 
         Self::new(core::slice::from_raw_parts(ptr, real_size))
     }
@@ -263,12 +268,14 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
 impl<'a> Fdt<'a, (UnalignedParser<'a>, NoPanic)> {
     /// Construct a new `Fdt` from a byte buffer
     pub fn new_unaligned_fallible(data: &'a [u8]) -> Result<Self, FdtError> {
-        let Fdt { parser, strings, structs, header, .. } = Fdt::new_unaligned(data)?;
+        let Fdt { parser, header, .. } = Fdt::new_unaligned(data)?;
         Ok(Self {
-            parser: (UnalignedParser::new(parser.data(), strings.0), NoPanic),
-            strings,
-            structs,
+            parser: (
+                UnalignedParser::new(parser.data(), parser.strings(), parser.structs()),
+                NoPanic,
+            ),
             header,
+            _lifetime: core::marker::PhantomData,
         })
     }
 
@@ -276,12 +283,14 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, NoPanic)> {
     /// This function performs a read to verify the magic value. If the pointer
     /// is invalid this can result in undefined behavior.
     pub unsafe fn from_ptr_unaligned_fallible(ptr: *const u8) -> Result<Self, FdtError> {
-        let Fdt { parser, strings, structs, header, .. } = Fdt::from_ptr_unaligned(ptr)?;
+        let Fdt { parser, header, .. } = Fdt::from_ptr_unaligned(ptr)?;
         Ok(Self {
-            parser: (UnalignedParser::new(parser.data(), strings.0), NoPanic),
-            strings,
-            structs,
+            parser: (
+                UnalignedParser::new(parser.data(), parser.strings(), parser.structs()),
+                NoPanic,
+            ),
             header,
+            _lifetime: core::marker::PhantomData,
         })
     }
 }
@@ -289,12 +298,14 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, NoPanic)> {
 impl<'a> Fdt<'a, (AlignedParser<'a>, NoPanic)> {
     /// Construct a new `Fdt` from a `u32`-aligned buffer which won't panic on invalid data
     pub fn new_fallible(data: &'a [u32]) -> Result<Self, FdtError> {
-        let Fdt { parser, strings, structs, header, .. } = Fdt::new(data)?;
+        let Fdt { parser, header, .. } = Fdt::new(data)?;
         Ok(Self {
-            parser: (AlignedParser::new(parser.data(), strings.0), NoPanic),
-            strings,
-            structs,
+            parser: (
+                AlignedParser::new(parser.data(), parser.strings(), parser.structs()),
+                NoPanic,
+            ),
             header,
+            _lifetime: core::marker::PhantomData,
         })
     }
 
@@ -302,12 +313,14 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, NoPanic)> {
     /// This function performs a read to verify the magic value. If the pointer
     /// is invalid this can result in undefined behavior.
     pub unsafe fn from_ptr_fallible(ptr: *const u32) -> Result<Self, FdtError> {
-        let Fdt { parser, strings, structs, header, .. } = Fdt::from_ptr(ptr)?;
+        let Fdt { parser, header, .. } = Fdt::from_ptr(ptr)?;
         Ok(Self {
-            parser: (AlignedParser::new(parser.data(), strings.0), NoPanic),
-            strings,
-            structs,
+            parser: (
+                AlignedParser::new(parser.data(), parser.strings(), parser.structs()),
+                NoPanic,
+            ),
             header,
+            _lifetime: core::marker::PhantomData,
         })
     }
 }
@@ -521,10 +534,10 @@ impl<'a, P: ParserWithMode<'a>> Fdt<'a, P> {
     }
 
     pub fn strings_block(&self) -> &'a [u8] {
-        self.strings.0
+        self.parser.strings().0
     }
 
     pub fn structs_block(&self) -> &'a [P::Granularity] {
-        self.structs
+        self.parser.structs().0
     }
 }

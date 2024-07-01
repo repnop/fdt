@@ -254,9 +254,10 @@ fn cell_sizes() {
     assert_eq!(cpu_cs, CellSizes { address_cells: 1, size_cells: 0 });
 
     let soc_sc = fdt.root().find_node("/soc").unwrap().property::<CellSizes>().unwrap();
-    let test_cs = fdt.root().find_node("/soc/test").unwrap().property::<CellSizes>().unwrap();
+    let test_cs = fdt.root().find_node("/soc/test").unwrap().property::<CellSizes>();
     let pci_cs = fdt.root().find_node("/soc/pci").unwrap().property::<CellSizes>().unwrap();
-    assert_eq!(test_cs, soc_sc);
+    assert_eq!(soc_sc, CellSizes { address_cells: 2, size_cells: 2 });
+    assert_eq!(test_cs, None);
     assert_ne!(pci_cs, soc_sc);
 }
 
