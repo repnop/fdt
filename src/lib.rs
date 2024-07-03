@@ -84,6 +84,7 @@ pub enum FdtError {
     BadPtr,
     /// An error was encountered during parsing
     ParseError(ParseError),
+    PHandleNotFound(u32),
     MissingRequiredNode(&'static str),
     MissingRequiredProperty(&'static str),
     InvalidPropertyValue,
@@ -101,6 +102,10 @@ impl core::fmt::Display for FdtError {
             FdtError::BadMagic => write!(f, "bad FDT magic value"),
             FdtError::BadPtr => write!(f, "an invalid pointer was passed"),
             FdtError::ParseError(e) => core::fmt::Display::fmt(e, f),
+            FdtError::PHandleNotFound(value) => write!(
+                f,
+                "a node containing the `phandle` property value of `{value}` was not found"
+            ),
             FdtError::MissingRequiredNode(name) => {
                 write!(f, "FDT is missing a required node `{}`", name)
             }
