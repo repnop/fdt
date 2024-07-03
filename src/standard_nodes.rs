@@ -129,8 +129,8 @@ impl<'a> StdInOutPath<'a> {
     /// }
     /// ```
     ///
-    /// ```rust,norun
-    /// # let fdt = Fdt::new_unaligned(include_bytes!("./dtb/test.dtb")).unwrap();
+    /// ```rust
+    /// # let fdt = fdt::Fdt::new_unaligned(include_bytes!("../dtb/test.dtb")).unwrap();
     /// # let chosen = fdt.root().chosen();
     /// let stdout = chosen.stdout().unwrap();
     /// let stdin = chosen.stdin().unwrap();
@@ -196,7 +196,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// For example: `compatible = "fsl,mpc8572ds"`
     pub fn compatible(self) -> P::Output<Compatible<'a>> {
         P::to_output(crate::tryblock! {
-                Compatible::parse(self.node.fallible())?
+                Compatible::parse(self.node.fallible(), self.node.make_root()?)?
                     .ok_or(FdtError::MissingRequiredProperty("compatible"))
         })
     }

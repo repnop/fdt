@@ -4,6 +4,7 @@ use crate::{
         ParserWithMode, StringsBlock, StructsBlock,
     },
     properties::{InvalidPropertyValue, Property, PropertyValue},
+    standard_nodes::Root,
     FdtError,
 };
 
@@ -99,6 +100,13 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
         }
     }
 
+    pub(crate) fn make_root<P2: Parser<'a, Granularity = P::Granularity>>(
+        self,
+    ) -> Result<Root<'a, (P2, NoPanic)>, FdtError> {
+        let mut parser = <(P2, NoPanic)>::new(self.structs.0, self.strings, self.structs);
+        parser.parse_root().map(|node| Root { node })
+    }
+
     #[inline]
     pub fn name(&self) -> <P as PanicMode>::Output<NodeName<'a>> {
         P::to_output(
@@ -139,8 +147,10 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
     }
 
     #[track_caller]
-    pub fn property<Prop: Property<'a>>(&self) -> P::Output<Option<Prop>> {
-        P::to_output(Prop::parse(self.fallible()))
+    pub fn property<Prop: Property<'a, P>>(&self) -> P::Output<Option<Prop>> {
+        P::to_output(crate::tryblock! {
+            Prop::parse(self.alt(), self.make_root()?)
+        })
     }
 
     #[inline]
