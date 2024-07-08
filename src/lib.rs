@@ -88,6 +88,7 @@ pub enum FdtError {
     MissingRequiredNode(&'static str),
     MissingRequiredProperty(&'static str),
     InvalidPropertyValue,
+    CollectCellsError,
 }
 
 impl From<ParseError> for FdtError {

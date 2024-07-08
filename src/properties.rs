@@ -1,4 +1,4 @@
-use core::ffi::CStr;
+use core::{ffi::CStr, ops::Shl};
 
 use crate::{
     nodes::Node,
@@ -9,6 +9,259 @@ use crate::{
     standard_nodes::Root,
     FdtError,
 };
+
+#[derive(Debug, Clone, Copy)]
+pub struct CollectCellsError;
+
+impl From<CollectCellsError> for FdtError {
+    fn from(_: CollectCellsError) -> Self {
+        FdtError::CollectCellsError
+    }
+}
+
+pub trait BuildCellCollector: Default {
+    type Output;
+
+    fn push(&mut self, component: u32) -> Result<(), CollectCellsError>;
+    fn finish(self) -> Self::Output;
+}
+
+pub trait CellCollector: Default + Sized {
+    type Output;
+    type Builder: BuildCellCollector;
+
+    fn map(builder_out: <Self::Builder as BuildCellCollector>::Output) -> Self::Output;
+}
+
+pub struct BuildIntCollector<Int> {
+    value: Int,
+}
+
+impl<Int: Default> Default for BuildIntCollector<Int> {
+    fn default() -> Self {
+        Self { value: Default::default() }
+    }
+}
+
+impl<
+        Int: Copy
+            + Default
+            + core::cmp::PartialEq
+            + core::ops::Shl<u32, Output = Int>
+            + core::ops::Shr<u32, Output = Int>
+            + core::ops::BitOr<Int, Output = Int>
+            + From<u32>,
+    > BuildCellCollector for BuildIntCollector<Int>
+{
+    type Output = Int;
+
+    #[inline(always)]
+    fn push(&mut self, component: u32) -> Result<(), CollectCellsError> {
+        let shr = const {
+            match core::mem::size_of::<Int>().checked_sub(4) {
+                Some(value) => value as u32,
+                None => panic!("integer type too small"),
+            }
+        };
+
+        if self.value >> shr != Int::from(0u32) {
+            return Err(CollectCellsError);
+        }
+
+        self.value = self.value.shl(32).bitor(Int::from(component));
+
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn finish(self) -> Self::Output {
+        self.value
+    }
+}
+
+pub struct BuildWrappingIntCollector<Int> {
+    value: Int,
+}
+
+impl<Int: Default> Default for BuildWrappingIntCollector<Int> {
+    fn default() -> Self {
+        Self { value: Default::default() }
+    }
+}
+
+impl<
+        Int: Copy
+            + Default
+            + core::ops::Shl<u32, Output = Int>
+            + core::ops::BitOr<Int, Output = Int>
+            + From<u32>,
+    > BuildCellCollector for BuildWrappingIntCollector<Int>
+{
+    type Output = Int;
+
+    #[inline(always)]
+    fn push(&mut self, component: u32) -> Result<(), CollectCellsError> {
+        self.value = self.value.shl(32).bitor(Int::from(component));
+
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn finish(self) -> Self::Output {
+        self.value
+    }
+}
+
+impl CellCollector for u64 {
+    type Output = Self;
+    type Builder = BuildIntCollector<Self>;
+
+    #[inline(always)]
+    fn map(builder_out: <BuildIntCollector<Self> as BuildCellCollector>::Output) -> Self::Output {
+        builder_out
+    }
+}
+
+impl<
+        Int: Copy
+            + Default
+            + core::ops::Shl<u32, Output = Int>
+            + core::ops::BitOr<Int, Output = Int>
+            + From<u32>,
+    > CellCollector for core::num::Wrapping<Int>
+{
+    type Output = Int;
+    type Builder = BuildWrappingIntCollector<Int>;
+
+    #[inline(always)]
+    fn map(builder_out: <Self::Builder as BuildCellCollector>::Output) -> Self::Output {
+        builder_out
+    }
+}
+
+/// [PCI Bus Binding to Open Firmware 2.2.1.1 Numerical Representation](https://www.openfirmware.info/data/docs/bus.pci.pdf)
+///
+/// Numerical representation of a PCI address used within the `interrupt-map` property
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PciAddress {
+    pub hi: PciAddressHighBits,
+    pub mid: u32,
+    pub lo: u32,
+}
+
+impl CellCollector for PciAddress {
+    type Builder = PciAddressCollector;
+    type Output = Self;
+
+    fn map(builder_out: <Self::Builder as BuildCellCollector>::Output) -> Self::Output {
+        builder_out
+    }
+}
+
+/// `phys.hi cell: npt000ss bbbbbbbb dddddfff rrrrrrrr`
+///
+/// where:
+///
+/// `n` is 0 if the address is relocatable, 1 otherwise
+///
+/// `p` is 1 if the addressable region is "prefetchable", 0 otherwise
+///
+/// `t` is 1 if the address is aliased (for non-relocatable I/O), below 1 MB (for Memory),
+///
+/// `or` below 64 KB (for relocatable I/O).
+///
+/// `ss` is the space code, denoting the address space
+///
+/// `bbbbbbbb` is the 8-bit Bus Number
+///
+/// `ddddd` is the 5-bit Device Number
+///
+/// `fff` is the 3-bit Function Number
+///
+/// `rrrrrrrr` is the 8-bit Register Number
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PciAddressHighBits(u32);
+
+impl PciAddressHighBits {
+    #[inline(always)]
+    pub fn register(self) -> u8 {
+        self.0 as u8
+    }
+
+    #[inline(always)]
+    pub fn function(self) -> u8 {
+        ((self.0 >> 8) & 0b111) as u8
+    }
+
+    #[inline(always)]
+    pub fn device(self) -> u8 {
+        ((self.0 >> 12) & 0b11111) as u8
+    }
+
+    #[inline(always)]
+    pub fn bus(self) -> u8 {
+        (self.0 >> 16) as u8
+    }
+
+    #[inline(always)]
+    pub fn address_space(self) -> PciAddressSpace {
+        const CONFIGURATION: u8 = const { PciAddressSpace::Configuration as u8 };
+        const IO: u8 = const { PciAddressSpace::Io as u8 };
+        const MEMORY32: u8 = const { PciAddressSpace::Memory32 as u8 };
+        const MEMORY64: u8 = const { PciAddressSpace::Memory64 as u8 };
+
+        match ((self.0 >> 24) & 0b11) as u8 {
+            CONFIGURATION => PciAddressSpace::Configuration,
+            IO => PciAddressSpace::Io,
+            MEMORY32 => PciAddressSpace::Memory32,
+            MEMORY64 => PciAddressSpace::Memory64,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn prefetchable(self) -> bool {
+        (self.0 >> 30) & 0b1 == 0b1
+    }
+
+    #[inline(always)]
+    pub fn relocatable(self) -> bool {
+        (self.0 >> 31) & 0b1 == 0b0
+    }
+}
+
+#[repr(u8)]
+pub enum PciAddressSpace {
+    Configuration = 0b00,
+    Io = 0b01,
+    Memory32 = 0b10,
+    Memory64 = 0b11,
+}
+
+#[derive(Default)]
+pub struct PciAddressCollector {
+    address: PciAddress,
+    num_pushes: u32,
+}
+
+impl BuildCellCollector for PciAddressCollector {
+    type Output = PciAddress;
+
+    fn push(&mut self, component: u32) -> Result<(), CollectCellsError> {
+        match self.num_pushes {
+            0 => self.address.hi = PciAddressHighBits(component),
+            1 => self.address.mid = component,
+            2 => self.address.lo = component,
+            _ => return Err(CollectCellsError),
+        }
+
+        Ok(())
+    }
+
+    fn finish(self) -> Self::Output {
+        self.address
+    }
+}
 
 pub trait Property<'a, P: Parser<'a>>: Sized {
     fn parse(
@@ -363,8 +616,8 @@ impl<'a> Reg<'a> {
         RegRawIter { cell_sizes: self.cell_sizes, encoded_array: self.encoded_array }
     }
 
-    pub fn iter_u64(self) -> RegU64Iter<'a> {
-        RegU64Iter { cell_sizes: self.cell_sizes, encoded_array: self.encoded_array }
+    pub fn iter<C: CellCollector>(self) -> RegIter<'a, C> {
+        RegUIter { cell_sizes: self.cell_sizes, encoded_array: self.encoded_array, collector: core::marker::PhantomData }
     }
 }
 
@@ -398,13 +651,14 @@ pub struct RegEntry<I> {
     pub len: I,
 }
 
-pub struct RegU64Iter<'a> {
+pub struct RegIter<'a, C: CellCollector> {
     cell_sizes: CellSizes,
     encoded_array: &'a [u8],
+    _collector: core::marker::PhantomData<*mut C>,
 }
 
-impl<'a> Iterator for RegU64Iter<'a> {
-    type Item = RegEntry<u64>;
+impl<'a, C: CellCollector> Iterator for RegIter<'a, C> {
+    type Item = RegEntry<C::Output>;
     fn next(&mut self) -> Option<Self::Item> {
         let address_bytes = self.cell_sizes.address_cells * 4;
         let size_bytes = self.cell_sizes.size_cells * 4;
@@ -412,29 +666,24 @@ impl<'a> Iterator for RegU64Iter<'a> {
         let encoded_address = self.encoded_array.get(..address_bytes)?;
         let encoded_len = self.encoded_array.get(address_bytes..address_bytes + size_bytes)?;
 
-        let mut address: u64 = 0;
-        let mut len: u64 = 0;
-
+        let mut address_collector = <C as CellCollector>::Builder::default();
         for encoded_address in encoded_address.chunks_exact(4) {
-            address = address.wrapping_shl(32);
-
             // TODO: replace this stuff with `array_chunks` when its stabilized
             //
             // These unwraps can't panic because `chunks_exact` guarantees that
             // we'll always get slices of 4 bytes
             let addr = u64::from(u32::from_be_bytes(encoded_address.try_into().unwrap()));
-            address = address.wrapping_add(addr);
+            address_collector.push(addr);
         }
 
+        let mut len_collector = <C as CellCollector>::Builder::default();
         for encoded_len in encoded_len.chunks_exact(4) {
-            len = len.wrapping_shl(32);
-
             // TODO: replace this stuff with `array_chunks` when its stabilized
             //
             // These unwraps can't panic because `chunks_exact` guarantees that
             // we'll always get slices of 4 bytes
             let l = u64::from(u32::from_be_bytes(encoded_len.try_into().unwrap()));
-            len = len.wrapping_add(l);
+            len_collector.push(l)
         }
 
         self.encoded_array = self.encoded_array.get((address_bytes + size_bytes)..)?;
@@ -903,6 +1152,8 @@ impl<'a, P: Parser<'a>> Property<'a, P> for InterruptController {
         }
     }
 }
+
+pub struct InterruptMap<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {}
 
 pub struct InvalidPropertyValue;
 
