@@ -5,7 +5,7 @@
 extern crate std;
 
 use nodes::NodeName;
-use properties::{CellSizes, InterruptMap, PciAddress};
+use properties::{CellSizes, InterruptMap, PciAddress, PciAddressHighBits};
 
 // use crate::{node::RawReg, *};
 use crate::*;
@@ -266,23 +266,38 @@ fn interrupt_map() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let root = fdt.root();
 
-    for entry in root
+    let entries = [
+        (PciAddress { hi: PciAddressHighBits::new(0), mid: 0, lo: 0 }, 1, None, 32),
+        (PciAddress { hi: PciAddressHighBits::new(0), mid: 0, lo: 0 }, 2, None, 33),
+        (PciAddress { hi: PciAddressHighBits::new(0), mid: 0, lo: 0 }, 3, None, 34),
+        (PciAddress { hi: PciAddressHighBits::new(0), mid: 0, lo: 0 }, 4, None, 35),
+        (PciAddress { hi: PciAddressHighBits::new(2048), mid: 0, lo: 0 }, 1, None, 33),
+        (PciAddress { hi: PciAddressHighBits::new(2048), mid: 0, lo: 0 }, 2, None, 34),
+        (PciAddress { hi: PciAddressHighBits::new(2048), mid: 0, lo: 0 }, 3, None, 35),
+        (PciAddress { hi: PciAddressHighBits::new(2048), mid: 0, lo: 0 }, 4, None, 32),
+        (PciAddress { hi: PciAddressHighBits::new(4096), mid: 0, lo: 0 }, 1, None, 34),
+        (PciAddress { hi: PciAddressHighBits::new(4096), mid: 0, lo: 0 }, 2, None, 35),
+        (PciAddress { hi: PciAddressHighBits::new(4096), mid: 0, lo: 0 }, 3, None, 32),
+        (PciAddress { hi: PciAddressHighBits::new(4096), mid: 0, lo: 0 }, 4, None, 33),
+        (PciAddress { hi: PciAddressHighBits::new(6144), mid: 0, lo: 0 }, 1, None, 35),
+        (PciAddress { hi: PciAddressHighBits::new(6144), mid: 0, lo: 0 }, 2, None, 32),
+        (PciAddress { hi: PciAddressHighBits::new(6144), mid: 0, lo: 0 }, 3, None, 33),
+        (PciAddress { hi: PciAddressHighBits::new(6144), mid: 0, lo: 0 }, 4, None, 34),
+    ];
+
+    for (entry, expected) in root
         .find_node("/soc/pci")
         .unwrap()
         .property::<InterruptMap<PciAddress, u64, Option<u64>, u64, (AlignedParser<'_>, Panic)>>()
         .unwrap()
         .iter()
+        .zip(entries)
     {
-        std::println!(
-            "{:?} {} {:?} {}",
-            entry.child_unit_address(),
-            entry.child_interrupt_specifier(),
-            entry.parent_unit_address(),
-            entry.parent_interrupt_specifier()
-        );
+        assert_eq!(entry.child_unit_address(), expected.0);
+        assert_eq!(entry.child_interrupt_specifier(), expected.1);
+        assert_eq!(entry.parent_unit_address(), expected.2);
+        assert_eq!(entry.parent_interrupt_specifier(), expected.3);
     }
-
-    panic!()
 }
 
 // #[test]

@@ -59,7 +59,7 @@ impl<
     fn push(&mut self, component: u32) -> Result<(), CollectCellsError> {
         let shr = const {
             match core::mem::size_of::<Int>().checked_sub(4) {
-                Some(value) => value as u32,
+                Some(value) => value as u32 * 8,
                 None => panic!("integer type too small"),
             }
         };
@@ -182,7 +182,7 @@ impl<
 /// [PCI Bus Binding to Open Firmware 2.2.1.1 Numerical Representation](https://www.openfirmware.info/data/docs/bus.pci.pdf)
 ///
 /// Numerical representation of a PCI address used within the `interrupt-map` property
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PciAddress {
     pub hi: PciAddressHighBits,
     pub mid: u32,
@@ -223,6 +223,11 @@ impl CellCollector for PciAddress {
 pub struct PciAddressHighBits(u32);
 
 impl PciAddressHighBits {
+    #[inline(always)]
+    pub fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
     #[inline(always)]
     pub fn register(self) -> u8 {
         self.0 as u8
