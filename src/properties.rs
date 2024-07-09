@@ -122,6 +122,46 @@ impl CellCollector for u64 {
     }
 }
 
+impl<T: CellCollector> CellCollector for Option<T> {
+    type Builder = BuildOptionalCellCollector<T>;
+    type Output = Option<T::Output>;
+
+    fn map(builder_out: <Self::Builder as BuildCellCollector>::Output) -> Self::Output {
+        builder_out.map(T::map)
+    }
+}
+
+pub struct BuildOptionalCellCollector<T: CellCollector> {
+    builder: T::Builder,
+    used: bool,
+}
+
+impl<T: CellCollector> Default for BuildOptionalCellCollector<T> {
+    fn default() -> Self {
+        Self { builder: Default::default(), used: false }
+    }
+}
+
+impl<T: CellCollector> BuildCellCollector for BuildOptionalCellCollector<T> {
+    type Output = Option<<T::Builder as BuildCellCollector>::Output>;
+
+    #[inline(always)]
+    fn push(&mut self, component: u32) -> Result<(), CollectCellsError> {
+        self.used = true;
+        self.builder.push(component)?;
+
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn finish(self) -> Self::Output {
+        match self.used {
+            true => Some(self.builder.finish()),
+            false => None,
+        }
+    }
+}
+
 impl<
         Int: Copy
             + Default
@@ -230,6 +270,17 @@ impl PciAddressHighBits {
     }
 }
 
+impl core::ops::BitAnd for PciAddress {
+    type Output = Self;
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self {
+            hi: PciAddressHighBits(self.hi.0 & rhs.hi.0),
+            mid: self.mid & rhs.mid,
+            lo: self.lo & rhs.lo,
+        }
+    }
+}
+
 #[repr(u8)]
 pub enum PciAddressSpace {
     Configuration = 0b00,
@@ -254,6 +305,8 @@ impl BuildCellCollector for PciAddressCollector {
             2 => self.address.lo = component,
             _ => return Err(CollectCellsError),
         }
+
+        self.num_pushes += 1;
 
         Ok(())
     }
@@ -602,6 +655,22 @@ impl Default for CellSizes {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AddressCells(pub usize);
+
+impl<'a, P: Parser<'a>> Property<'a, P> for AddressCells {
+    #[inline]
+    fn parse(
+        node: Node<'a, (P, NoPanic)>,
+        _: Root<'a, (P, NoPanic)>,
+    ) -> Result<Option<Self>, FdtError> {
+        match node.properties()?.find("#address-cells")? {
+            Some(value) => Ok(Some(Self(value.to()?))),
+            None => Ok(None),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reg<'a> {
     cell_sizes: CellSizes,
     encoded_array: &'a [u8],
@@ -617,7 +686,11 @@ impl<'a> Reg<'a> {
     }
 
     pub fn iter<C: CellCollector>(self) -> RegIter<'a, C> {
-        RegUIter { cell_sizes: self.cell_sizes, encoded_array: self.encoded_array, collector: core::marker::PhantomData }
+        RegIter {
+            cell_sizes: self.cell_sizes,
+            encoded_array: self.encoded_array,
+            _collector: core::marker::PhantomData,
+        }
     }
 }
 
@@ -658,7 +731,7 @@ pub struct RegIter<'a, C: CellCollector> {
 }
 
 impl<'a, C: CellCollector> Iterator for RegIter<'a, C> {
-    type Item = RegEntry<C::Output>;
+    type Item = Result<RegEntry<C::Output>, CollectCellsError>;
     fn next(&mut self) -> Option<Self::Item> {
         let address_bytes = self.cell_sizes.address_cells * 4;
         let size_bytes = self.cell_sizes.size_cells * 4;
@@ -672,8 +745,11 @@ impl<'a, C: CellCollector> Iterator for RegIter<'a, C> {
             //
             // These unwraps can't panic because `chunks_exact` guarantees that
             // we'll always get slices of 4 bytes
-            let addr = u64::from(u32::from_be_bytes(encoded_address.try_into().unwrap()));
-            address_collector.push(addr);
+            if let Err(e) =
+                address_collector.push(u32::from_be_bytes(encoded_address.try_into().unwrap()))
+            {
+                return Some(Err(e));
+            }
         }
 
         let mut len_collector = <C as CellCollector>::Builder::default();
@@ -682,12 +758,17 @@ impl<'a, C: CellCollector> Iterator for RegIter<'a, C> {
             //
             // These unwraps can't panic because `chunks_exact` guarantees that
             // we'll always get slices of 4 bytes
-            let l = u64::from(u32::from_be_bytes(encoded_len.try_into().unwrap()));
-            len_collector.push(l)
+            if let Err(e) = len_collector.push(u32::from_be_bytes(encoded_len.try_into().unwrap()))
+            {
+                return Some(Err(e));
+            }
         }
 
         self.encoded_array = self.encoded_array.get((address_bytes + size_bytes)..)?;
-        Some(RegEntry { address, len })
+        Some(Ok(RegEntry {
+            address: C::map(address_collector.finish()),
+            len: C::map(len_collector.finish()),
+        }))
     }
 }
 
@@ -1113,13 +1194,7 @@ impl<'a, P: Parser<'a>, Mode: PanicMode + Clone + Default + 'static> Property<'a
 /// The `#interrupt-cells` property defines the number of cells required to
 /// encode an interrupt specifier for an interrupt domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct InterruptCells(u32);
-
-impl InterruptCells {
-    pub fn into_u32(self) -> u32 {
-        self.0
-    }
-}
+pub struct InterruptCells(pub usize);
 
 impl<'a, P: Parser<'a>> Property<'a, P> for InterruptCells {
     fn parse(
@@ -1128,6 +1203,84 @@ impl<'a, P: Parser<'a>> Property<'a, P> for InterruptCells {
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("#interrupt-cells")? {
             Some(ic) => Ok(Some(Self(ic.to()?))),
+            None => Ok(None),
+        }
+    }
+}
+
+/// [Devicetree 2.4.3.2.
+/// `interrupt-map-mask`](https://devicetree-specification.readthedocs.io/en/latest/chapter2-devicetree-basics.html#interrupt-map-mask)
+///
+/// An `interrupt-map-mask` property is specified for a nexus node in the
+/// interrupt tree. This property specifies a mask that is `AND`ed with the
+/// incoming unit interrupt specifier being looked up in the table specified in
+/// the `interrupt-map` property.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct InterruptMapMask<ADDRMASK: CellCollector, INTMASK: CellCollector> {
+    address_mask: ADDRMASK::Output,
+    interrupt_specifier_mask: INTMASK::Output,
+}
+
+impl<ADDRMASK: CellCollector, INTMASK: CellCollector> InterruptMapMask<ADDRMASK, INTMASK> {
+    pub fn mask(
+        self,
+        address: <ADDRMASK as CellCollector>::Output,
+        interrupt_specifier: <INTMASK as CellCollector>::Output,
+    ) -> (<ADDRMASK as CellCollector>::Output, <INTMASK as CellCollector>::Output)
+    where
+        <ADDRMASK as CellCollector>::Output: core::ops::BitAnd<
+            <ADDRMASK as CellCollector>::Output,
+            Output = <ADDRMASK as CellCollector>::Output,
+        >,
+        <INTMASK as CellCollector>::Output: core::ops::BitAnd<
+            <INTMASK as CellCollector>::Output,
+            Output = <INTMASK as CellCollector>::Output,
+        >,
+    {
+        (self.address_mask & address, self.interrupt_specifier_mask & interrupt_specifier)
+    }
+}
+
+impl<'a, ADDRMASK: CellCollector, INTMASK: CellCollector, P: Parser<'a>> Property<'a, P>
+    for InterruptMapMask<ADDRMASK, INTMASK>
+{
+    fn parse(
+        node: Node<'a, (P, NoPanic)>,
+        _: Root<'a, (P, NoPanic)>,
+    ) -> Result<Option<Self>, FdtError> {
+        let address_cells = node
+            .property::<AddressCells>()?
+            .ok_or(FdtError::MissingRequiredProperty("#address-cells"))?;
+        let interrupt_cells = node
+            .property::<InterruptCells>()?
+            .ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
+        match node.properties()?.find("interrupt-map-mask")? {
+            Some(prop) => {
+                if prop.value().len() % 4 != 0 {
+                    return Err(FdtError::InvalidPropertyValue);
+                }
+
+                let mut address_collector = ADDRMASK::Builder::default();
+                let mut specifier_collector = INTMASK::Builder::default();
+                let mut cells = prop.value().chunks_exact(4);
+
+                // TODO: replace this stuff with `array_chunks` when its stabilized
+                //
+                // These unwraps can't panic because `chunks_exact` guarantees that
+                // we'll always get slices of 4 bytes
+                for chunk in cells.by_ref().take(address_cells.0) {
+                    address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+                }
+
+                for chunk in cells.take(interrupt_cells.0 as usize) {
+                    specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+                }
+
+                Ok(Some(Self {
+                    address_mask: ADDRMASK::map(address_collector.finish()),
+                    interrupt_specifier_mask: INTMASK::map(specifier_collector.finish()),
+                }))
+            }
             None => Ok(None),
         }
     }
@@ -1153,7 +1306,266 @@ impl<'a, P: Parser<'a>> Property<'a, P> for InterruptController {
     }
 }
 
-pub struct InterruptMap<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {}
+pub struct InterruptMap<
+    'a,
+    CADDR: CellCollector,
+    CINT: CellCollector,
+    PADDR: CellCollector,
+    PINT: CellCollector,
+    P: ParserWithMode<'a> = (AlignedParser<'a>, Panic),
+> {
+    address_cells: AddressCells,
+    interrupt_cells: InterruptCells,
+    node: Node<'a, (P::Parser, NoPanic)>,
+    encoded_map: &'a [u8],
+    _collectors: core::marker::PhantomData<*mut (CADDR, CINT, PADDR, PINT)>,
+}
+
+impl<
+        'a,
+        P: ParserWithMode<'a>,
+        CADDR: CellCollector,
+        CINT: CellCollector,
+        PADDR: CellCollector,
+        PINT: CellCollector,
+    > InterruptMap<'a, CADDR, CINT, PADDR, PINT, P>
+{
+    pub fn iter(self) -> InterruptMapIter<'a, CADDR, CINT, PADDR, PINT, P> {
+        InterruptMapIter {
+            address_cells: self.address_cells,
+            interrupt_cells: self.interrupt_cells,
+            node: self.node,
+            encoded_map: self.encoded_map,
+            _collectors: core::marker::PhantomData,
+        }
+    }
+
+    pub fn find(
+        self,
+        address: CADDR::Output,
+        interrupt_specifier: CINT::Output,
+    ) -> P::Output<Option<InterruptMapEntry<'a, CADDR, CINT, PADDR, PINT, P>>> {
+        todo!()
+    }
+}
+
+impl<
+        'a,
+        P: Parser<'a>,
+        Mode: PanicMode + Clone + Default + 'static,
+        CADDR: CellCollector,
+        CINT: CellCollector,
+        PADDR: CellCollector,
+        PINT: CellCollector,
+    > Property<'a, P> for InterruptMap<'a, CADDR, CINT, PADDR, PINT, (P, Mode)>
+{
+    fn parse(
+        node: Node<'a, (P, NoPanic)>,
+        _: Root<'a, (P, NoPanic)>,
+    ) -> Result<Option<Self>, FdtError> {
+        let Some(encoded_map) = node.properties()?.find("interrupt-map")? else { return Ok(None) };
+
+        let address_cells = node
+            .property::<AddressCells>()?
+            .ok_or(FdtError::MissingRequiredProperty("#address-cells"))?;
+        let interrupt_cells = node
+            .property::<InterruptCells>()?
+            .ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
+
+        Ok(Some(InterruptMap {
+            address_cells,
+            interrupt_cells,
+            node: node.alt(),
+            encoded_map: encoded_map.value(),
+            _collectors: core::marker::PhantomData,
+        }))
+    }
+}
+
+pub struct InterruptMapIter<
+    'a,
+    CADDR: CellCollector,
+    CINT: CellCollector,
+    PADDR: CellCollector,
+    PINT: CellCollector,
+    P: ParserWithMode<'a> = (AlignedParser<'a>, Panic),
+> {
+    address_cells: AddressCells,
+    interrupt_cells: InterruptCells,
+    node: Node<'a, (P::Parser, NoPanic)>,
+    encoded_map: &'a [u8],
+    _collectors: core::marker::PhantomData<*mut (CADDR, CINT, PADDR, PINT)>,
+}
+
+impl<
+        'a,
+        CADDR: CellCollector,
+        CINT: CellCollector,
+        PADDR: CellCollector,
+        PINT: CellCollector,
+        P: ParserWithMode<'a>,
+    > Iterator for InterruptMapIter<'a, CADDR, CINT, PADDR, PINT, P>
+{
+    type Item = P::Output<InterruptMapEntry<'a, CADDR, CINT, PADDR, PINT, P>>;
+
+    #[track_caller]
+    fn next(&mut self) -> Option<Self::Item> {
+        let res = crate::tryblock! {
+            let child_addr_size = self.address_cells.0 * 4;
+            let child_intsp_size = self.interrupt_cells.0 * 4;
+
+            let Some(child_address_iter) = self.encoded_map.get(..child_addr_size) else { return Ok(None) };
+            let Some(child_specifier_iter) = self.encoded_map.get(child_addr_size..child_addr_size+child_intsp_size) else { return Ok(None) };
+            let Some(interrupt_parent) = self.encoded_map.get(child_addr_size+child_intsp_size..child_addr_size+child_intsp_size+4) else { return Ok(None) };
+
+            let root = self.node.make_root::<(P::Parser, NoPanic)>()?;
+            let phandle = u32::from_ne_bytes(interrupt_parent.try_into().unwrap());
+            let interrupt_parent = root.resolve_phandle(PHandle(BigEndianU32::from_be(phandle)))?.ok_or(FdtError::PHandleNotFound(phandle.swap_bytes()))?;
+
+            let parent_address_cells = interrupt_parent.property::<AddressCells>()?.ok_or(FdtError::MissingRequiredProperty("#address-cells/#size-cells"))?;
+            let parent_interrupt_cells = interrupt_parent.property::<InterruptCells>()?.ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
+
+            let parent_addr_size = parent_address_cells.0 * 4;
+            let parent_intsp_size = parent_interrupt_cells.0 * 4;
+            let Some(parent_address_iter) = self.encoded_map.get(child_addr_size+child_intsp_size+4..child_addr_size+child_intsp_size+4+parent_addr_size) else { return Ok(None)};
+
+            let Some(mut parent_specifier_iter) = self.encoded_map.get(child_addr_size+child_intsp_size+4+parent_addr_size..) else { return Ok(None)};
+            self.encoded_map = match parent_specifier_iter.get(parent_intsp_size..) {
+                Some(s) => s,
+                None => return Ok(None),
+            };
+            parent_specifier_iter = match parent_specifier_iter.get(..parent_intsp_size) {
+                Some(s) => s,
+                None => return Ok(None),
+            };
+
+            let mut child_address_collector = CADDR::Builder::default();
+            for chunk in child_address_iter.chunks_exact(4) {
+                child_address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            }
+
+            let mut child_specifier_collector = CINT::Builder::default();
+            for chunk in child_specifier_iter.chunks_exact(4) {
+                child_specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            }
+
+            let mut parent_address_collector = PADDR::Builder::default();
+            for chunk in parent_address_iter.chunks_exact(4) {
+                parent_address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            }
+
+            let mut parent_specifier_collector = PINT::Builder::default();
+            for chunk in parent_specifier_iter.chunks_exact(4) {
+                parent_specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            }
+
+            Ok(Some(InterruptMapEntry {
+                interrupt_parent: interrupt_parent.alt(),
+                child_address: CADDR::map(child_address_collector.finish()),
+                child_interrupt_specifier: CINT::map(child_specifier_collector.finish()),
+                parent_address: PADDR::map(parent_address_collector.finish()),
+                parent_interrupt_specifier: PINT::map(parent_specifier_collector.finish()),
+            }))
+        };
+
+        #[allow(clippy::manual_map)]
+        match res.transpose() {
+            Some(output) => Some(P::to_output(output)),
+            None => None,
+        }
+    }
+}
+
+pub struct InterruptMapEntry<
+    'a,
+    CADDR: CellCollector,
+    CINT: CellCollector,
+    PADDR: CellCollector,
+    PINT: CellCollector,
+    P: ParserWithMode<'a>,
+> {
+    interrupt_parent: Node<'a, P>,
+    child_address: CADDR::Output,
+    child_interrupt_specifier: CINT::Output,
+    parent_address: PADDR::Output,
+    parent_interrupt_specifier: PINT::Output,
+}
+
+impl<
+        'a,
+        P: ParserWithMode<'a>,
+        CADDR: CellCollector,
+        CINT: CellCollector,
+        PADDR: CellCollector,
+        PINT: CellCollector,
+    > InterruptMapEntry<'a, CADDR, CINT, PADDR, PINT, P>
+{
+    #[inline(always)]
+    pub fn interrupt_parent(self) -> Node<'a, P> {
+        self.interrupt_parent
+    }
+
+    #[inline(always)]
+    pub fn child_unit_address(self) -> CADDR::Output {
+        self.child_address
+    }
+
+    #[inline(always)]
+    pub fn child_interrupt_specifier(self) -> CINT::Output {
+        self.child_interrupt_specifier
+    }
+
+    #[inline(always)]
+    pub fn parent_unit_address(self) -> PADDR::Output {
+        self.parent_address
+    }
+
+    #[inline(always)]
+    pub fn parent_interrupt_specifier(self) -> PINT::Output {
+        self.parent_interrupt_specifier
+    }
+}
+
+impl<
+        'a,
+        P: ParserWithMode<'a>,
+        CADDR: CellCollector,
+        CINT: CellCollector,
+        PADDR: CellCollector,
+        PINT: CellCollector,
+    > Clone for InterruptMapEntry<'a, CADDR, CINT, PADDR, PINT, P>
+where
+    CADDR::Output: Clone,
+    CINT::Output: Clone,
+    PADDR::Output: Clone,
+    PINT::Output: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            child_address: self.child_address.clone(),
+            child_interrupt_specifier: self.child_interrupt_specifier.clone(),
+            interrupt_parent: self.interrupt_parent,
+            parent_address: self.parent_address.clone(),
+            parent_interrupt_specifier: self.parent_interrupt_specifier.clone(),
+        }
+    }
+}
+
+impl<
+        'a,
+        P: ParserWithMode<'a>,
+        CADDR: CellCollector,
+        CINT: CellCollector,
+        PADDR: CellCollector,
+        PINT: CellCollector,
+    > Copy for InterruptMapEntry<'a, CADDR, CINT, PADDR, PINT, P>
+where
+    CADDR::Output: Copy,
+    CINT::Output: Copy,
+    PADDR::Output: Copy,
+    PINT::Output: Copy,
+{
+}
 
 pub struct InvalidPropertyValue;
 
@@ -1174,6 +1586,26 @@ impl<'a> PropertyValue<'a> for u32 {
             [a, b, c, d] => Ok(u32::from_be_bytes([*a, *b, *c, *d])),
             _ => Err(InvalidPropertyValue),
         }
+    }
+}
+
+impl<'a> PropertyValue<'a> for usize {
+    #[inline]
+    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
+        #[cfg(target_pointer_width = "32")]
+        let ret = match value {
+            [a, b, c, d] => Ok(usize::from_be_bytes([*a, *b, *c, *d])),
+            _ => Err(InvalidPropertyValue),
+        };
+
+        #[cfg(target_pointer_width = "64")]
+        let ret = match value {
+            [a, b, c, d] => Ok(usize::from_be_bytes([0, 0, 0, 0, *a, *b, *c, *d])),
+            [a, b, c, d, e, f, g, h] => Ok(usize::from_be_bytes([*a, *b, *c, *d, *e, *f, *g, *h])),
+            _ => Err(InvalidPropertyValue),
+        };
+
+        ret
     }
 }
 
@@ -1248,13 +1680,17 @@ mod tests {
 
     #[test]
     fn reg_u64_iter() {
-        let mut iter = RegU64Iter {
+        let mut iter = RegIter::<u64> {
             cell_sizes: CellSizes { address_cells: 2, size_cells: 1 },
             encoded_array: &[
                 0x55, 0x44, 0x33, 0x22, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
             ],
+            _collector: core::marker::PhantomData,
         };
 
-        assert_eq!(iter.next().unwrap(), RegEntry { address: 0x5544332266778899, len: 0xAABBCCDD });
+        assert_eq!(
+            iter.next().unwrap().unwrap(),
+            RegEntry { address: 0x5544332266778899, len: 0xAABBCCDD }
+        );
     }
 }

@@ -142,12 +142,13 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
     #[inline]
     pub fn raw_property(&self, name: &str) -> P::Output<Option<NodeProperty<'a>>> {
         P::to_output(tryblock! {
-            P::to_result(P::to_result(self.properties())?.find(name))
+            let this = self.fallible();
+            this.properties()?.find(name)
         })
     }
 
     #[track_caller]
-    pub fn property<Prop: Property<'a, P>>(&self) -> P::Output<Option<Prop>> {
+    pub fn property<Prop: Property<'a, P::Parser>>(&self) -> P::Output<Option<Prop>> {
         P::to_output(crate::tryblock! {
             Prop::parse(self.alt(), self.make_root()?)
         })
@@ -224,11 +225,22 @@ pub struct NodeProperties<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)
 }
 
 impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
-    pub fn iter(self) -> NodePropertiesIter<'a, P> {
-        NodePropertiesIter { properties: self }
+    pub(crate) fn alt<P2: ParserWithMode<'a, Granularity = P::Granularity>>(
+        self,
+    ) -> NodeProperties<'a, P2> {
+        NodeProperties {
+            data: self.data,
+            strings: self.strings,
+            structs: self.structs,
+            _mode: core::marker::PhantomData,
+        }
     }
 
-    pub fn advance(&mut self) -> P::Output<Option<NodeProperty<'a>>> {
+    pub fn iter(self) -> NodePropertiesIter<'a, P> {
+        NodePropertiesIter { properties: self.alt(), _mode: core::marker::PhantomData }
+    }
+
+    pub(crate) fn advance(&mut self) -> P::Output<Option<NodeProperty<'a>>> {
         let mut parser = P::new(self.data, self.strings, self.structs);
 
         match parser.peek_token() {
@@ -296,7 +308,8 @@ impl<'a, P: ParserWithMode<'a>> IntoIterator for NodeProperties<'a, P> {
 
 #[derive(Clone)]
 pub struct NodePropertiesIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
-    properties: NodeProperties<'a, P>,
+    properties: NodeProperties<'a, (P::Parser, NoPanic)>,
+    _mode: core::marker::PhantomData<*mut P>,
 }
 
 impl<'a, P: ParserWithMode<'a>> Iterator for NodePropertiesIter<'a, P> {
@@ -304,10 +317,17 @@ impl<'a, P: ParserWithMode<'a>> Iterator for NodePropertiesIter<'a, P> {
 
     #[track_caller]
     fn next(&mut self) -> Option<Self::Item> {
-        P::transpose(self.properties.advance())
+        // This is a manual impl of `map` because we need the panic location to
+        // be the caller if `P::to_output` panics
+        #[allow(clippy::manual_map)]
+        match self.properties.advance().transpose() {
+            Some(output) => Some(P::to_output(output)),
+            None => None,
+        }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NodeProperty<'a> {
     name: &'a str,
     value: &'a [u8],
@@ -341,10 +361,18 @@ pub struct NodeChildren<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> 
 
 impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
     pub fn iter(self) -> NodeChildrenIter<'a, P> {
-        NodeChildrenIter { children: self }
+        NodeChildrenIter {
+            children: NodeChildren {
+                data: self.data,
+                parent: self.parent,
+                strings: self.strings,
+                structs: self.structs,
+                _mode: core::marker::PhantomData,
+            },
+        }
     }
 
-    pub fn advance(&mut self) -> P::Output<Option<Node<'a, P>>> {
+    pub(crate) fn advance(&mut self) -> P::Output<Option<Node<'a, P>>> {
         let mut parser = P::new(self.data, self.strings, self.structs);
 
         match parser.peek_token() {
@@ -412,7 +440,7 @@ impl<'a, P: ParserWithMode<'a>> Copy for NodeChildren<'a, P> {}
 
 #[derive(Clone)]
 pub struct NodeChildrenIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
-    children: NodeChildren<'a, P>,
+    children: NodeChildren<'a, (P::Parser, NoPanic)>,
 }
 
 impl<'a, P: ParserWithMode<'a> + 'a> Iterator for NodeChildrenIter<'a, P> {
@@ -420,6 +448,12 @@ impl<'a, P: ParserWithMode<'a> + 'a> Iterator for NodeChildrenIter<'a, P> {
 
     #[track_caller]
     fn next(&mut self) -> Option<Self::Item> {
-        P::transpose(self.children.advance())
+        // This is a manual impl of `map` because we need the panic location to
+        // be the caller if `P::to_output` panics
+        #[allow(clippy::manual_map)]
+        match self.children.advance().transpose() {
+            Some(output) => Some(P::to_output(output.map(Node::alt))),
+            None => None,
+        }
     }
 }
