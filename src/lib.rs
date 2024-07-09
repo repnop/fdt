@@ -114,6 +114,7 @@ impl core::fmt::Display for FdtError {
                 write!(f, "FDT node is missing a required property `{}`", name)
             }
             FdtError::InvalidPropertyValue => write!(f, "FDT property value is invalid"),
+            FdtError::CollectCellsError => write!(f, "overflow occurred while collecting `#<specifier>-cells` size values into the desired type")
         }
     }
 }

@@ -152,7 +152,9 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// Root node cell sizes
     #[track_caller]
     pub fn cell_sizes(self) -> P::Output<CellSizes> {
-        P::transpose(self.node.property::<CellSizes>()).unwrap()
+        P::to_output(crate::tryblock! {
+            self.node.fallible().property::<CellSizes>()?.ok_or(FdtError::MissingRequiredProperty("#address-cells/#size-cells"))
+        })
     }
 
     /// [Devicetree 3.2. Root

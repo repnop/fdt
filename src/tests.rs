@@ -5,7 +5,7 @@
 extern crate std;
 
 use nodes::NodeName;
-use properties::CellSizes;
+use properties::{CellSizes, InterruptMap, PciAddress};
 
 // use crate::{node::RawReg, *};
 use crate::*;
@@ -259,6 +259,30 @@ fn cell_sizes() {
     assert_eq!(soc_sc, CellSizes { address_cells: 2, size_cells: 2 });
     assert_eq!(test_cs, None);
     assert_ne!(pci_cs, soc_sc);
+}
+
+#[test]
+fn interrupt_map() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let root = fdt.root();
+
+    for entry in root
+        .find_node("/soc/pci")
+        .unwrap()
+        .property::<InterruptMap<PciAddress, u64, Option<u64>, u64, (AlignedParser<'_>, Panic)>>()
+        .unwrap()
+        .iter()
+    {
+        std::println!(
+            "{:?} {} {:?} {}",
+            entry.child_unit_address(),
+            entry.child_interrupt_specifier(),
+            entry.parent_unit_address(),
+            entry.parent_interrupt_specifier()
+        );
+    }
+
+    panic!()
 }
 
 // #[test]

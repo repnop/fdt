@@ -134,11 +134,6 @@ impl core::fmt::Display for ParseError {
 pub trait PanicMode: crate::sealed::Sealed {
     type Output<T>;
     fn to_output<T>(result: Result<T, FdtError>) -> Self::Output<T>;
-    fn transpose<T>(result: Self::Output<Option<T>>) -> Option<Self::Output<T>>;
-    fn reverse_transpose<T>(result: Option<Self::Output<T>>) -> Self::Output<Option<T>>;
-    fn ok_as_ref<T>(output: &Self::Output<T>) -> Option<&T>;
-    fn ok<T>(output: Self::Output<T>) -> Option<T>;
-    fn to_result<T>(output: Self::Output<T>) -> Result<T, FdtError>;
 }
 
 #[derive(Clone, Copy, Default)]
@@ -151,26 +146,6 @@ impl PanicMode for NoPanic {
     #[inline(always)]
     fn to_output<T>(result: Result<T, FdtError>) -> Self::Output<T> {
         result
-    }
-
-    fn transpose<T>(result: Self::Output<Option<T>>) -> Option<Self::Output<T>> {
-        result.transpose()
-    }
-
-    fn reverse_transpose<T>(result: Option<Self::Output<T>>) -> Self::Output<Option<T>> {
-        result.transpose()
-    }
-
-    fn ok_as_ref<T>(output: &Self::Output<T>) -> Option<&T> {
-        output.as_ref().ok()
-    }
-
-    fn ok<T>(output: Self::Output<T>) -> Option<T> {
-        output.ok()
-    }
-
-    fn to_result<T>(output: Self::Output<T>) -> Result<T, FdtError> {
-        output
     }
 }
 
@@ -185,28 +160,6 @@ impl PanicMode for Panic {
     #[inline(always)]
     fn to_output<T>(result: Result<T, FdtError>) -> Self::Output<T> {
         result.unwrap()
-    }
-
-    #[track_caller]
-    #[inline(always)]
-    fn transpose<T>(result: Self::Output<Option<T>>) -> Option<Self::Output<T>> {
-        result
-    }
-
-    fn reverse_transpose<T>(result: Option<Self::Output<T>>) -> Self::Output<Option<T>> {
-        result
-    }
-
-    fn ok_as_ref<T>(output: &Self::Output<T>) -> Option<&T> {
-        Some(output)
-    }
-
-    fn ok<T>(output: Self::Output<T>) -> Option<T> {
-        Some(output)
-    }
-
-    fn to_result<T>(output: Self::Output<T>) -> Result<T, FdtError> {
-        Ok(output)
     }
 }
 
@@ -275,26 +228,6 @@ impl<'a, P: Parser<'a>, U: PanicMode> PanicMode for (P, U) {
     #[track_caller]
     fn to_output<T>(result: Result<T, FdtError>) -> Self::Output<T> {
         U::to_output(result)
-    }
-
-    fn transpose<T>(result: Self::Output<Option<T>>) -> Option<Self::Output<T>> {
-        U::transpose(result)
-    }
-
-    fn reverse_transpose<T>(result: Option<Self::Output<T>>) -> Self::Output<Option<T>> {
-        U::reverse_transpose(result)
-    }
-
-    fn ok_as_ref<T>(output: &Self::Output<T>) -> Option<&T> {
-        U::ok_as_ref(output)
-    }
-
-    fn ok<T>(output: Self::Output<T>) -> Option<T> {
-        U::ok(output)
-    }
-
-    fn to_result<T>(output: Self::Output<T>) -> Result<T, FdtError> {
-        U::to_result(output)
     }
 }
 
