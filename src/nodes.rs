@@ -148,7 +148,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
     }
 
     #[track_caller]
-    pub fn property<Prop: Property<'a, P::Parser>>(&self) -> P::Output<Option<Prop>> {
+    pub fn property<Prop: Property<'a, P>>(&self) -> P::Output<Option<Prop>> {
         P::to_output(crate::tryblock! {
             Prop::parse(self.alt(), self.make_root()?)
         })

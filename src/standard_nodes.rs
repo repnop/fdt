@@ -198,7 +198,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// For example: `compatible = "fsl,mpc8572ds"`
     pub fn compatible(self) -> P::Output<Compatible<'a>> {
         P::to_output(crate::tryblock! {
-                Compatible::parse(self.node.fallible(), self.node.make_root()?)?
+                <Compatible as Property<'a, P>>::parse(self.node.fallible(), self.node.make_root()?)?
                     .ok_or(FdtError::MissingRequiredProperty("compatible"))
         })
     }
