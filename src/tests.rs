@@ -288,7 +288,7 @@ fn interrupt_map() {
     for (entry, expected) in root
         .find_node("/soc/pci")
         .unwrap()
-        .property::<InterruptMap<PciAddress, u64, Option<u64>, u64, (AlignedParser<'_>, Panic)>>()
+        .property::<InterruptMap<PciAddress, u64, Option<u64>, u64>>()
         .unwrap()
         .iter()
         .zip(entries)

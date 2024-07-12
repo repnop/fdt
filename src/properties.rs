@@ -1,10 +1,10 @@
-use core::{ffi::CStr, ops::Shl};
+use core::ffi::CStr;
 
 use crate::{
     nodes::Node,
     parsing::{
-        aligned::AlignedParser, unaligned::UnalignedParser, BigEndianU32, NoPanic, Panic,
-        PanicMode, Parser, ParserWithMode, StringsBlock, StructsBlock,
+        aligned::AlignedParser, unaligned::UnalignedParser, BigEndianU32, NoPanic, Panic, Parser,
+        ParserWithMode, StringsBlock, StructsBlock,
     },
     standard_nodes::Root,
     FdtError,
@@ -112,7 +112,27 @@ impl<
     }
 }
 
+impl CellCollector for u32 {
+    type Output = Self;
+    type Builder = BuildIntCollector<Self>;
+
+    #[inline(always)]
+    fn map(builder_out: <BuildIntCollector<Self> as BuildCellCollector>::Output) -> Self::Output {
+        builder_out
+    }
+}
+
 impl CellCollector for u64 {
+    type Output = Self;
+    type Builder = BuildIntCollector<Self>;
+
+    #[inline(always)]
+    fn map(builder_out: <BuildIntCollector<Self> as BuildCellCollector>::Output) -> Self::Output {
+        builder_out
+    }
+}
+
+impl CellCollector for u128 {
     type Output = Self;
     type Builder = BuildIntCollector<Self>;
 
@@ -321,10 +341,10 @@ impl BuildCellCollector for PciAddressCollector {
     }
 }
 
-pub trait Property<'a, P: Parser<'a>>: Sized {
+pub trait Property<'a, P: ParserWithMode<'a>>: Sized {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        root: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        root: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError>;
 }
 
@@ -358,10 +378,10 @@ pub struct Compatible<'a> {
     string: &'a str,
 }
 
-impl<'a, P: Parser<'a>> Property<'a, P> for Compatible<'a> {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Compatible<'a> {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         let property = node.properties()?.find("compatible")?;
 
@@ -418,10 +438,10 @@ impl<'a> Iterator for CompatibleIter<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Model<'a>(&'a str);
 
-impl<'a, P: Parser<'a>> Property<'a, P> for Model<'a> {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Model<'a> {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("model")? {
             Some(model) => Ok(Some(Self(model.to()?))),
@@ -476,10 +496,10 @@ impl<'a> core::cmp::PartialEq<Model<'a>> for str {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PHandle(BigEndianU32);
 
-impl<'a, P: Parser<'a>> Property<'a, P> for PHandle {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for PHandle {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         let Some(phandle) = node.properties()?.find("phandle")? else {
             return Ok(None);
@@ -546,10 +566,10 @@ impl<'a> Status<'a> {
     }
 }
 
-impl<'a, P: Parser<'a>> Property<'a, P> for Status<'a> {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Status<'a> {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("status")? {
             Some(model) => Ok(Some(Self(model.to()?))),
@@ -627,11 +647,11 @@ pub struct CellSizes {
     pub size_cells: usize,
 }
 
-impl<'a, P: Parser<'a>> Property<'a, P> for CellSizes {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for CellSizes {
     #[inline]
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         let (mut address_cells, mut size_cells) = (None, None);
 
@@ -662,11 +682,11 @@ impl Default for CellSizes {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AddressCells(pub usize);
 
-impl<'a, P: Parser<'a>> Property<'a, P> for AddressCells {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for AddressCells {
     #[inline]
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("#address-cells")? {
             Some(value) => Ok(Some(Self(value.to()?))),
@@ -699,10 +719,10 @@ impl<'a> Reg<'a> {
     }
 }
 
-impl<'a, P: Parser<'a>> Property<'a, P> for Reg<'a> {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Reg<'a> {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         let Some(prop) = node.raw_property("reg")? else {
             return Ok(None);
@@ -827,10 +847,10 @@ impl VirtualReg {
     }
 }
 
-impl<'a, P: Parser<'a>> Property<'a, P> for VirtualReg {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for VirtualReg {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("virtual-reg")? {
             Some(vreg) => Ok(Some(Self(vreg.to()?))),
@@ -853,10 +873,10 @@ pub struct Ranges<'a> {
 /// property is not applicable.
 pub struct DmaCoherent;
 
-impl<'a, P: Parser<'a>> Property<'a, P> for DmaCoherent {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for DmaCoherent {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("dma-coherent")? {
             Some(_) => Ok(Some(Self)),
@@ -873,12 +893,10 @@ pub enum Interrupts<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     Extended(ExtendedInterrupts<'a, P>),
 }
 
-impl<'a, P: Parser<'a>, Mode: PanicMode + Clone + Default + 'static> Property<'a, P>
-    for Interrupts<'a, (P, Mode)>
-{
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Interrupts<'a, P> {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        root: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        root: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match ExtendedInterrupts::parse(node, root)? {
             Some(extended) => Ok(Some(Self::Extended(extended))),
@@ -907,26 +925,24 @@ pub struct LegacyInterrupts<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Pani
     encoded_array: &'a [u8],
 }
 
-impl<'a, P: Parser<'a>, Mode: PanicMode + Clone + Default + 'static> Property<'a, P>
-    for LegacyInterrupts<'a, (P, Mode)>
-{
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for LegacyInterrupts<'a, P> {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        root: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        root: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupts")? {
             Some(interrupts) => {
-                let interrupt_parent = match InterruptParent::<'a, (P, NoPanic)>::parse(node, root)?
-                {
-                    Some(p) => p,
-                    None => return Err(FdtError::MissingRequiredProperty("interrupt-parent")),
-                };
+                let interrupt_parent =
+                    match InterruptParent::<(P::Parser, NoPanic)>::parse(node, root)? {
+                        Some(p) => p,
+                        None => return Err(FdtError::MissingRequiredProperty("interrupt-parent")),
+                    };
 
                 let Some(interrupt_cells) = interrupt_parent.property::<InterruptCells>()? else {
                     return Err(FdtError::MissingRequiredProperty("interrupt-cells"));
                 };
 
-                if interrupts.value().len() % (interrupt_cells.0 * 4) as usize != 0 {
+                if interrupts.value().len() % (interrupt_cells.0 * 4) != 0 {
                     return Err(FdtError::InvalidPropertyValue);
                 }
 
@@ -969,12 +985,10 @@ impl<'a, P: ParserWithMode<'a>> ExtendedInterrupts<'a, P> {
     }
 }
 
-impl<'a, P: Parser<'a>, Mode: PanicMode + Clone + Default + 'static> Property<'a, P>
-    for ExtendedInterrupts<'a, (P, Mode)>
-{
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for ExtendedInterrupts<'a, P> {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        root: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        root: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupts-extended")? {
             Some(interrupts) => Ok(Some(Self {
@@ -1012,7 +1026,7 @@ impl<'a, P: ParserWithMode<'a>> Iterator for ExtendedInterruptsIter<'a, P> {
                 return Err(FdtError::MissingRequiredProperty("#interrupt-cells"));
             };
 
-            let cells_length = 4 * interrupt_cells.0 as usize;
+            let cells_length = interrupt_cells.0 * 4;
             let encoded_array = match self.encoded_array.get(..cells_length) {
                 Some(bytes) => bytes,
                 None => return Ok(None),
@@ -1176,12 +1190,10 @@ impl<'a, P: ParserWithMode<'a>> core::ops::DerefMut for InterruptParent<'a, P> {
     }
 }
 
-impl<'a, P: Parser<'a>, Mode: PanicMode + Clone + Default + 'static> Property<'a, P>
-    for InterruptParent<'a, (P, Mode)>
-{
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptParent<'a, P> {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        root: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        root: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupt-parent")? {
             Some(phandle) => match root.resolve_phandle(PHandle(phandle.to()?))? {
@@ -1201,10 +1213,10 @@ impl<'a, P: Parser<'a>, Mode: PanicMode + Clone + Default + 'static> Property<'a
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InterruptCells(pub usize);
 
-impl<'a, P: Parser<'a>> Property<'a, P> for InterruptCells {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptCells {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("#interrupt-cells")? {
             Some(ic) => Ok(Some(Self(ic.to()?))),
@@ -1246,12 +1258,12 @@ impl<ADDRMASK: CellCollector, INTMASK: CellCollector> InterruptMapMask<ADDRMASK,
     }
 }
 
-impl<'a, ADDRMASK: CellCollector, INTMASK: CellCollector, P: Parser<'a>> Property<'a, P>
+impl<'a, ADDRMASK: CellCollector, INTMASK: CellCollector, P: ParserWithMode<'a>> Property<'a, P>
     for InterruptMapMask<ADDRMASK, INTMASK>
 {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         let address_cells = node
             .property::<AddressCells>()?
@@ -1277,7 +1289,7 @@ impl<'a, ADDRMASK: CellCollector, INTMASK: CellCollector, P: Parser<'a>> Propert
                     address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
                 }
 
-                for chunk in cells.take(interrupt_cells.0 as usize) {
+                for chunk in cells.take(interrupt_cells.0) {
                     specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
                 }
 
@@ -1299,10 +1311,10 @@ impl<'a, ADDRMASK: CellCollector, INTMASK: CellCollector, P: Parser<'a>> Propert
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InterruptController;
 
-impl<'a, P: Parser<'a>> Property<'a, P> for InterruptController {
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptController {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupt-controller")? {
             Some(_) => Ok(Some(Self)),
@@ -1314,9 +1326,9 @@ impl<'a, P: Parser<'a>> Property<'a, P> for InterruptController {
 pub struct InterruptMap<
     'a,
     CADDR: CellCollector,
-    CINT: CellCollector,
-    PADDR: CellCollector,
-    PINT: CellCollector,
+    CINT: CellCollector = u32,
+    PADDR: CellCollector = u64,
+    PINT: CellCollector = u32,
     P: ParserWithMode<'a> = (AlignedParser<'a>, Panic),
 > {
     address_cells: AddressCells,
@@ -1356,17 +1368,16 @@ impl<
 
 impl<
         'a,
-        P: Parser<'a>,
-        Mode: PanicMode + Clone + Default + 'static,
+        P: ParserWithMode<'a>,
         CADDR: CellCollector,
         CINT: CellCollector,
         PADDR: CellCollector,
         PINT: CellCollector,
-    > Property<'a, P> for InterruptMap<'a, CADDR, CINT, PADDR, PINT, (P, Mode)>
+    > Property<'a, P> for InterruptMap<'a, CADDR, CINT, PADDR, PINT, P>
 {
     fn parse(
-        node: Node<'a, (P, NoPanic)>,
-        _: Root<'a, (P, NoPanic)>,
+        node: Node<'a, (P::Parser, NoPanic)>,
+        _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         let Some(encoded_map) = node.properties()?.find("interrupt-map")? else { return Ok(None) };
 
