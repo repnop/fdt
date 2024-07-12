@@ -386,7 +386,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Compatible<'a> {
         let property = node.properties()?.find("compatible")?;
 
         match property {
-            Some(prop) => Ok(Some(Self { string: prop.to()? })),
+            Some(prop) => Ok(Some(Self { string: prop.as_value()? })),
             None => Ok(None),
         }
     }
@@ -444,7 +444,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Model<'a> {
         _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("model")? {
-            Some(model) => Ok(Some(Self(model.to()?))),
+            Some(model) => Ok(Some(Self(model.as_value()?))),
             None => Ok(None),
         }
     }
@@ -505,7 +505,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for PHandle {
             return Ok(None);
         };
 
-        Ok(Some(PHandle(phandle.to()?)))
+        Ok(Some(PHandle(phandle.as_value()?)))
     }
 }
 
@@ -572,7 +572,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Status<'a> {
         _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("status")? {
-            Some(model) => Ok(Some(Self(model.to()?))),
+            Some(model) => Ok(Some(Self(model.as_value()?))),
             None => Ok(None),
         }
     }
@@ -689,7 +689,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for AddressCells {
         _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("#address-cells")? {
-            Some(value) => Ok(Some(Self(value.to()?))),
+            Some(value) => Ok(Some(Self(value.as_value()?))),
             None => Ok(None),
         }
     }
@@ -853,7 +853,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for VirtualReg {
         _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("virtual-reg")? {
-            Some(vreg) => Ok(Some(Self(vreg.to()?))),
+            Some(vreg) => Ok(Some(Self(vreg.as_value()?))),
             None => Ok(None),
         }
     }
@@ -1196,9 +1196,9 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptParent<'a, P> {
         root: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupt-parent")? {
-            Some(phandle) => match root.resolve_phandle(PHandle(phandle.to()?))? {
+            Some(phandle) => match root.resolve_phandle(PHandle(phandle.as_value()?))? {
                 Some(parent) => Ok(Some(Self(parent.alt()))),
-                None => Err(FdtError::PHandleNotFound(phandle.to()?)),
+                None => Err(FdtError::PHandleNotFound(phandle.as_value()?)),
             },
             None => Ok(node.parent().map(|n| Self(n.alt()))),
         }
@@ -1219,7 +1219,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptCells {
         _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("#interrupt-cells")? {
-            Some(ic) => Ok(Some(Self(ic.to()?))),
+            Some(ic) => Ok(Some(Self(ic.as_value()?))),
             None => Ok(None),
         }
     }
@@ -1361,8 +1361,39 @@ impl<
         self,
         address: CADDR::Output,
         interrupt_specifier: CINT::Output,
-    ) -> P::Output<Option<InterruptMapEntry<'a, CADDR, CINT, PADDR, PINT, P>>> {
-        todo!()
+    ) -> P::Output<Option<InterruptMapEntry<'a, CADDR, CINT, PADDR, PINT, P>>>
+    where
+        for<'b> &'b CADDR::Output: PartialEq,
+        for<'b> &'b CINT::Output: PartialEq,
+    {
+        let this: InterruptMap<_, _, _, _, (P::Parser, NoPanic)> = InterruptMap {
+            address_cells: self.address_cells,
+            interrupt_cells: self.interrupt_cells,
+            node: self.node,
+            encoded_map: self.encoded_map,
+            _collectors: self._collectors,
+        };
+
+        P::to_output(
+            this.iter()
+                .find(|e| match e {
+                    Err(_) => true,
+                    Ok(entry) => {
+                        entry.child_unit_address() == &address
+                            && entry.child_interrupt_specifier() == &interrupt_specifier
+                    }
+                })
+                .transpose()
+                .map(|e| {
+                    e.map(|e| InterruptMapEntry::<_, _, _, _, P> {
+                        child_address: e.child_address,
+                        child_interrupt_specifier: e.child_interrupt_specifier,
+                        interrupt_parent: e.interrupt_parent.alt(),
+                        parent_address: e.parent_address,
+                        parent_interrupt_specifier: e.parent_interrupt_specifier,
+                    })
+                }),
+        )
     }
 }
 
@@ -1517,28 +1548,28 @@ impl<
     > InterruptMapEntry<'a, CADDR, CINT, PADDR, PINT, P>
 {
     #[inline(always)]
-    pub fn interrupt_parent(self) -> Node<'a, P> {
+    pub fn interrupt_parent(&self) -> Node<'a, P> {
         self.interrupt_parent
     }
 
     #[inline(always)]
-    pub fn child_unit_address(self) -> CADDR::Output {
-        self.child_address
+    pub fn child_unit_address(&self) -> &CADDR::Output {
+        &self.child_address
     }
 
     #[inline(always)]
-    pub fn child_interrupt_specifier(self) -> CINT::Output {
-        self.child_interrupt_specifier
+    pub fn child_interrupt_specifier(&self) -> &CINT::Output {
+        &self.child_interrupt_specifier
     }
 
     #[inline(always)]
-    pub fn parent_unit_address(self) -> PADDR::Output {
-        self.parent_address
+    pub fn parent_unit_address(&self) -> &PADDR::Output {
+        &self.parent_address
     }
 
     #[inline(always)]
-    pub fn parent_interrupt_specifier(self) -> PINT::Output {
-        self.parent_interrupt_specifier
+    pub fn parent_interrupt_specifier(&self) -> &PINT::Output {
+        &self.parent_interrupt_specifier
     }
 }
 

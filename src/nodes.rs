@@ -346,7 +346,7 @@ impl<'a> NodeProperty<'a> {
         self.value
     }
 
-    pub fn to<V: PropertyValue<'a>>(&self) -> Result<V, InvalidPropertyValue> {
+    pub fn as_value<V: PropertyValue<'a>>(&self) -> Result<V, InvalidPropertyValue> {
         V::parse(self.value)
     }
 }

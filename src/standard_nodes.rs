@@ -48,7 +48,7 @@ impl<'a, P: ParserWithMode<'a> + 'a> Chosen<'a, P> {
                     false => None,
                     true => Some(
                         property
-                            .to::<&'a str>()
+                            .as_value::<&'a str>()
                             .map_err(Into::into)
                             .map(|s| {
                                 let (path, params) = Self::split_stdinout_property(s);
@@ -75,7 +75,7 @@ impl<'a, P: ParserWithMode<'a> + 'a> Chosen<'a, P> {
                     false => None,
                     true => Some(
                         property
-                            .to::<&'a str>()
+                            .as_value::<&'a str>()
                             .map_err(Into::into)
                             .map(|s| {
                                 let (path, params) = Self::split_stdinout_property(s);
@@ -175,7 +175,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
                         false => None,
                         true => Some(
                             property
-                                .to::<&'a str>()
+                                .as_value::<&'a str>()
                                 .map_err(Into::into)
                         ),
                     },
