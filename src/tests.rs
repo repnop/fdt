@@ -264,9 +264,6 @@ fn cell_sizes() {
 #[test]
 fn interrupt_map() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-
-    std::panic!("{fdt}");
-
     let root = fdt.root();
 
     let entries: [(PciAddress, u64, Option<u64>, u64); 16] = [
