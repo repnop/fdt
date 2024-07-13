@@ -15,27 +15,21 @@ pub struct Error;
 
 impl From<FdtError> for Error {
     #[track_caller]
-    fn from(e: FdtError) -> Self {
-        #[cfg(test)]
-        std::println!("{e:?}, {}", core::panic::Location::caller());
+    fn from(_: FdtError) -> Self {
         Error
     }
 }
 
 impl From<CollectCellsError> for Error {
     #[track_caller]
-    fn from(e: CollectCellsError) -> Self {
-        #[cfg(test)]
-        std::println!("{e:?}, {}", core::panic::Location::caller());
+    fn from(_: CollectCellsError) -> Self {
         Error
     }
 }
 
 impl From<InvalidPropertyValue> for Error {
     #[track_caller]
-    fn from(e: InvalidPropertyValue) -> Self {
-        #[cfg(test)]
-        std::println!("{e:?}, {}", core::panic::Location::caller());
+    fn from(_: InvalidPropertyValue) -> Self {
         Error
     }
 }
@@ -128,9 +122,6 @@ pub fn print_fdt<'a, P: Parser<'a> + 'a>(
 
         Ok(())
     });
-
-    #[cfg(test)]
-    std::println!("{res:?}");
 
     Ok(res?)
 }
