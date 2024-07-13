@@ -18,7 +18,7 @@ impl<'a, P: ParserWithMode<'a> + 'a> Chosen<'a, P> {
     /// Contains the bootargs, if they exist
     #[track_caller]
     pub fn bootargs(self) -> P::Output<Option<&'a str>> {
-        P::to_output(crate::tryblock! {
+        P::to_output(crate::tryblock!({
             let node = self.node.fallible();
             for prop in node.properties()?.into_iter().flatten() {
                 if prop.name() == "bootargs" {
@@ -30,7 +30,7 @@ impl<'a, P: ParserWithMode<'a> + 'a> Chosen<'a, P> {
             }
 
             Ok(None)
-        })
+        }))
     }
 
     /// Looks up the `stdout-path` property and returns the [`StdInOutPath`]
@@ -40,24 +40,22 @@ impl<'a, P: ParserWithMode<'a> + 'a> Chosen<'a, P> {
     /// [`StdInOutPath::params`].
     #[track_caller]
     pub fn stdout(self) -> P::Output<Option<StdInOutPath<'a>>> {
-        P::to_output(crate::tryblock! {
+        P::to_output(crate::tryblock!({
             let node = self.node.fallible();
-            node.properties()?.into_iter().find_map(|n| match n {
-                Err(e) => Some(Err(e)),
-                Ok(property) => match property.name() == "stdout-path" {
-                    false => None,
-                    true => Some(
-                        property
-                            .as_value::<&'a str>()
-                            .map_err(Into::into)
-                            .map(|s| {
-                                let (path, params) = Self::split_stdinout_property(s);
-                                StdInOutPath { path, params }
-                            })
-                    ),
-                },
-            }).transpose()
-        })
+            node.properties()?
+                .into_iter()
+                .find_map(|n| match n {
+                    Err(e) => Some(Err(e)),
+                    Ok(property) => match property.name() == "stdout-path" {
+                        false => None,
+                        true => Some(property.as_value::<&'a str>().map_err(Into::into).map(|s| {
+                            let (path, params) = Self::split_stdinout_property(s);
+                            StdInOutPath { path, params }
+                        })),
+                    },
+                })
+                .transpose()
+        }))
     }
 
     /// Looks up the `stdin-path` property and returns the [`StdInOutPath`]
@@ -67,24 +65,22 @@ impl<'a, P: ParserWithMode<'a> + 'a> Chosen<'a, P> {
     /// [`StdInOutPath::params`].
     #[track_caller]
     pub fn stdin(self) -> P::Output<Option<StdInOutPath<'a>>> {
-        P::to_output(crate::tryblock! {
+        P::to_output(crate::tryblock!({
             let node = self.node.fallible();
-            node.properties()?.into_iter().find_map(|n| match n {
-                Err(e) => Some(Err(e)),
-                Ok(property) => match property.name() == "stdin-path" {
-                    false => None,
-                    true => Some(
-                        property
-                            .as_value::<&'a str>()
-                            .map_err(Into::into)
-                            .map(|s| {
-                                let (path, params) = Self::split_stdinout_property(s);
-                                StdInOutPath { path, params }
-                            })
-                    ),
-                },
-            }).transpose()
-        })
+            node.properties()?
+                .into_iter()
+                .find_map(|n| match n {
+                    Err(e) => Some(Err(e)),
+                    Ok(property) => match property.name() == "stdin-path" {
+                        false => None,
+                        true => Some(property.as_value::<&'a str>().map_err(Into::into).map(|s| {
+                            let (path, params) = Self::split_stdinout_property(s);
+                            StdInOutPath { path, params }
+                        })),
+                    },
+                })
+                .transpose()
+        }))
     }
 
     fn split_stdinout_property(property: &str) -> (&str, Option<&str>) {
@@ -152,9 +148,12 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// Root node cell sizes
     #[track_caller]
     pub fn cell_sizes(self) -> P::Output<CellSizes> {
-        P::to_output(crate::tryblock! {
-            self.node.fallible().property::<CellSizes>()?.ok_or(FdtError::MissingRequiredProperty("#address-cells/#size-cells"))
-        })
+        P::to_output(crate::tryblock!({
+            self.node
+                .fallible()
+                .property::<CellSizes>()?
+                .ok_or(FdtError::MissingRequiredProperty("#address-cells/#size-cells"))
+        }))
     }
 
     /// [Devicetree 3.2. Root
@@ -164,25 +163,20 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// board. The recommended format is "manufacturer,model-number".
     #[track_caller]
     pub fn model(self) -> P::Output<&'a str> {
-        P::to_output(crate::tryblock! {
+        P::to_output(crate::tryblock!({
             let node = self.node.fallible();
-            node
-                .properties()?
+            node.properties()?
                 .into_iter()
                 .find_map(|n| match n {
                     Err(e) => Some(Err(e)),
                     Ok(property) => match property.name() == "model" {
                         false => None,
-                        true => Some(
-                            property
-                                .as_value::<&'a str>()
-                                .map_err(Into::into)
-                        ),
+                        true => Some(property.as_value::<&'a str>().map_err(Into::into)),
                     },
                 })
                 .transpose()?
                 .ok_or(FdtError::MissingRequiredProperty("model"))
-        })
+        }))
     }
 
     /// [Devicetree 3.2. Root
@@ -197,10 +191,10 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     ///
     /// For example: `compatible = "fsl,mpc8572ds"`
     pub fn compatible(self) -> P::Output<Compatible<'a>> {
-        P::to_output(crate::tryblock! {
-                <Compatible as Property<'a, P>>::parse(self.node.fallible(), self.node.make_root()?)?
-                    .ok_or(FdtError::MissingRequiredProperty("compatible"))
-        })
+        P::to_output(crate::tryblock!({
+            <Compatible as Property<'a, P>>::parse(self.node.fallible(), self.node.make_root()?)?
+                .ok_or(FdtError::MissingRequiredProperty("compatible"))
+        }))
     }
 
     /// Returns an iterator over all of the available properties
@@ -215,7 +209,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
 
     #[track_caller]
     pub fn resolve_phandle(self, phandle: PHandle) -> P::Output<Option<Node<'a, P>>> {
-        P::to_output(crate::tryblock! {
+        P::to_output(crate::tryblock!({
             let this = Root { node: self.node.fallible() };
             for node in this.all_nodes()? {
                 let (_, node) = node?;
@@ -225,7 +219,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
             }
 
             Ok(None)
-        })
+        }))
     }
 
     #[track_caller]
@@ -297,7 +291,28 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
             return P::to_output(Err(e));
         }
 
-        P::to_output(Ok(AllNodesIterator { parser, parents: [&[]; 16], parent_index: 0 }))
+        P::to_output(Ok(AllNodesIterator {
+            parser,
+            parents: [
+                self.node.this.as_slice(),
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+            ],
+            parent_index: 0,
+        }))
     }
 }
 
@@ -342,7 +357,7 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
 
         let starting_data = self.parser.data();
 
-        match self.parents.get_mut(self.parent_index.saturating_sub(1)) {
+        match self.parents.get_mut(self.parent_index) {
             Some(idx) => *idx = starting_data,
             // FIXME: what makes sense for this to return?
             None => return None,
@@ -352,7 +367,10 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
             self.parent_index,
             Node {
                 this: RawNode::new(starting_data),
-                parent: self.parents.get(self.parent_index).map(|parent| RawNode::new(parent)),
+                parent: self
+                    .parents
+                    .get(self.parent_index.saturating_sub(1))
+                    .map(|parent| RawNode::new(parent)),
                 strings: self.parser.strings(),
                 structs: self.parser.structs(),
                 _mode: core::marker::PhantomData,

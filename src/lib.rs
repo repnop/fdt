@@ -137,11 +137,25 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Fdt<'a, P> {
     }
 }
 
-// impl<'a, P: Parser<'a>> core::fmt::Display for Fdt<'a, P> {
-//     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-//         pretty_print::print_node(f, self.root().node, 0)
-//     }
-// }
+impl<'a, P: ParserWithMode<'a> + 'a> core::fmt::Display for Fdt<'a, P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let this: Fdt<'a, (P::Parser, NoPanic)> = Fdt {
+            _lifetime: core::marker::PhantomData,
+            header: self.header,
+            parser: <(P::Parser, NoPanic)>::new(
+                self.parser.data(),
+                self.parser.strings(),
+                self.parser.structs(),
+            ),
+        };
+
+        let Ok(root) = this.root() else {
+            return Err(core::fmt::Error);
+        };
+
+        pretty_print::print_fdt(f, root)
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]

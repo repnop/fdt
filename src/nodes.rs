@@ -3,7 +3,7 @@ use crate::{
         aligned::AlignedParser, BigEndianToken, NoPanic, Panic, PanicMode, ParseError, Parser,
         ParserWithMode, StringsBlock, StructsBlock,
     },
-    properties::{InvalidPropertyValue, Property, PropertyValue},
+    properties::{InvalidPropertyValue, Property, PropertyValue, Reg},
     standard_nodes::Root,
     FdtError,
 };
@@ -11,10 +11,11 @@ use crate::{
 #[macro_export]
 #[doc(hidden)]
 macro_rules! tryblock {
-    ($($ts:tt)+) => {{
-        (|| -> Result<_, $crate::FdtError> {
-            $($ts)+
-        })()
+    ($errty:ty, $block:block) => {{
+        (|| -> Result<_, $errty> { $block })()
+    }};
+    ($block:block) => {{
+        (|| -> Result<_, $crate::FdtError> { $block })()
     }};
 }
 
@@ -78,19 +79,15 @@ pub struct Node<'a, P: ParserWithMode<'a>> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
+    /// Change the type of this node's [`PanicMode`] to [`NoPanic`]
     #[inline(always)]
     pub(crate) fn fallible(self) -> Node<'a, (P::Parser, NoPanic)> {
-        Node {
-            this: self.this,
-            parent: self.parent,
-            strings: self.strings,
-            structs: self.structs,
-            _mode: core::marker::PhantomData,
-        }
+        self.alt()
     }
 
+    /// Helper function for changing the [`PanicMode`] of this node
     #[inline(always)]
-    pub(crate) fn alt<P2: ParserWithMode<'a, Granularity = P::Granularity>>(self) -> Node<'a, P2> {
+    pub fn alt<P2: ParserWithMode<'a, Granularity = P::Granularity>>(self) -> Node<'a, P2> {
         Node {
             this: self.this,
             parent: self.parent,
@@ -126,6 +123,10 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
         )
     }
 
+    pub fn reg(&self) -> P::Output<Option<Reg<'a>>> {
+        self.property::<Reg<'a>>()
+    }
+
     #[inline]
     pub fn properties(&self) -> P::Output<NodeProperties<'a, P>> {
         let mut parser = P::new(&self.this.0, self.strings, self.structs);
@@ -141,26 +142,30 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
 
     #[inline]
     pub fn raw_property(&self, name: &str) -> P::Output<Option<NodeProperty<'a>>> {
-        P::to_output(tryblock! {
+        P::to_output(tryblock!({
             let this = self.fallible();
             this.properties()?.find(name)
-        })
+        }))
     }
 
     #[track_caller]
     pub fn property<Prop: Property<'a, P>>(&self) -> P::Output<Option<Prop>> {
-        P::to_output(crate::tryblock! {
-            Prop::parse(self.alt(), self.make_root()?)
-        })
+        P::to_output(crate::tryblock!({ Prop::parse(self.alt(), self.make_root()?) }))
     }
 
     #[inline]
     pub fn children(&self) -> P::Output<NodeChildren<'a, P>> {
-        P::to_output(tryblock! {
+        P::to_output(tryblock!({
             let mut parser = P::new(&self.this.0, self.strings, self.structs);
             parser.advance_cstr()?;
-            while let BigEndianToken::PROP = parser.peek_token()? {
-                parser.parse_raw_property()?;
+
+            loop {
+                match parser.peek_token() {
+                    Ok(BigEndianToken::PROP) => parser.parse_raw_property()?,
+                    Ok(BigEndianToken::BEGIN_NODE) => break,
+                    Ok(_) | Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => break,
+                    Err(e) => return Err(e),
+                };
             }
 
             Ok(NodeChildren {
@@ -170,7 +175,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
                 structs: self.structs,
                 _mode: core::marker::PhantomData,
             })
-        })
+        }))
     }
 
     #[inline]
@@ -257,7 +262,7 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
             Err(e) => return P::to_output(Err(e)),
         }
 
-        P::to_output(tryblock! {
+        P::to_output(tryblock!({
             match parser.parse_raw_property() {
                 Ok((name_offset, data)) => {
                     self.data = parser.data();
@@ -267,7 +272,7 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
                 Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => Ok(None),
                 Err(e) => return Err(e),
             }
-        })
+        }))
     }
 
     pub fn find(&self, name: &str) -> P::Output<Option<NodeProperty<'a>>> {

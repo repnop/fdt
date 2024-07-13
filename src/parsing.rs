@@ -243,7 +243,7 @@ impl<'a, T: Parser<'a>, U: PanicMode + Clone + Default + 'static> ParserWithMode
 }
 
 pub trait Parser<'a>: crate::sealed::Sealed + Clone {
-    type Granularity: Copy;
+    type Granularity: Copy + core::fmt::Debug;
 
     fn new(
         data: &'a [Self::Granularity],
