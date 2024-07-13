@@ -264,9 +264,12 @@ fn cell_sizes() {
 #[test]
 fn interrupt_map() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
+
+    std::panic!("{fdt}");
+
     let root = fdt.root();
 
-    let entries = [
+    let entries: [(PciAddress, u64, Option<u64>, u64); 16] = [
         (PciAddress { hi: PciAddressHighBits::new(0), mid: 0, lo: 0 }, 1, None, 32),
         (PciAddress { hi: PciAddressHighBits::new(0), mid: 0, lo: 0 }, 2, None, 33),
         (PciAddress { hi: PciAddressHighBits::new(0), mid: 0, lo: 0 }, 3, None, 34),
@@ -293,10 +296,10 @@ fn interrupt_map() {
         .iter()
         .zip(entries)
     {
-        assert_eq!(entry.child_unit_address(), expected.0);
-        assert_eq!(entry.child_interrupt_specifier(), expected.1);
-        assert_eq!(entry.parent_unit_address(), expected.2);
-        assert_eq!(entry.parent_interrupt_specifier(), expected.3);
+        assert_eq!(entry.child_unit_address, expected.0);
+        assert_eq!(entry.child_interrupt_specifier, expected.1);
+        assert_eq!(entry.parent_unit_address, expected.2);
+        assert_eq!(entry.parent_interrupt_specifier, expected.3);
     }
 }
 

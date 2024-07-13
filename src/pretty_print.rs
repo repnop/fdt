@@ -2,99 +2,215 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file, You can
 // obtain one at https://mozilla.org/MPL/2.0/.
 
-// pub fn print_node(
-//     f: &mut core::fmt::Formatter<'_>,
-//     node: crate::node::FdtNode<'_, '_>,
-//     n_spaces: usize,
-// ) -> core::fmt::Result {
-//     write!(f, "{:width$}", ' ', width = n_spaces)?;
-//     writeln!(f, "{} {{", if node.name.is_empty() { "/" } else { node.name })?;
-//     let mut were_props = false;
-//     for prop in node.properties() {
-//         were_props = true;
+use crate::{
+    nodes::{Node, NodeName},
+    parsing::{NoPanic, Parser},
+    properties::{CollectCellsError, InvalidPropertyValue, U32List},
+    standard_nodes::Root,
+    FdtError,
+};
 
-//         match prop.name {
-//             "reg" => {
-//                 write!(f, "{:width$}reg = <", ' ', width = n_spaces + 4)?;
-//                 for (i, reg) in node.reg().unwrap().enumerate() {
-//                     if i > 0 {
-//                         write!(f, " ")?;
-//                     }
+#[derive(Debug)]
+pub struct Error;
 
-//                     match reg.size {
-//                         Some(size) => {
-//                             write!(f, "{:#x} {:#x}", reg.starting_address as usize, size)?
-//                         }
-//                         None => write!(f, "{:#x}", reg.starting_address as usize)?,
-//                     }
-//                 }
-//                 writeln!(f, ">")?;
-//             }
-//             "compatible" => writeln!(
-//                 f,
-//                 "{:width$}compatible = {:?}",
-//                 ' ',
-//                 prop.as_str().unwrap(),
-//                 width = n_spaces + 4
-//             )?,
-//             name if name.contains("-cells") => {
-//                 writeln!(
-//                     f,
-//                     "{:width$}{} = <{:#x}>",
-//                     ' ',
-//                     name,
-//                     prop.as_usize().unwrap(),
-//                     width = n_spaces + 4
-//                 )?;
-//             }
-//             _ => match prop.as_str() {
-//                 Some(value)
-//                     if (!value.is_empty() && value.chars().all(|c| c.is_ascii_graphic()))
-//                         || prop.value == [0] =>
-//                 {
-//                     writeln!(f, "{:width$}{} = {:?}", ' ', prop.name, value, width = n_spaces + 4)?
-//                 }
-//                 _ => match prop.value.len() {
-//                     4 | 8 => writeln!(
-//                         f,
-//                         "{:width$}{} = <{:#x}>",
-//                         ' ',
-//                         prop.name,
-//                         prop.as_usize().unwrap(),
-//                         width = n_spaces + 4
-//                     )?,
-//                     _ => writeln!(
-//                         f,
-//                         "{:width$}{} = {:?}",
-//                         ' ',
-//                         prop.name,
-//                         prop.value,
-//                         width = n_spaces + 4
-//                     )?,
-//                 },
-//             },
-//         }
-//     }
+impl From<FdtError> for Error {
+    #[track_caller]
+    fn from(e: FdtError) -> Self {
+        #[cfg(test)]
+        std::println!("{e:?}, {}", core::panic::Location::caller());
+        Error
+    }
+}
 
-//     if node.children().next().is_some() && were_props {
-//         writeln!(f)?;
-//     }
+impl From<CollectCellsError> for Error {
+    #[track_caller]
+    fn from(e: CollectCellsError) -> Self {
+        #[cfg(test)]
+        std::println!("{e:?}, {}", core::panic::Location::caller());
+        Error
+    }
+}
 
-//     let mut first = true;
-//     for child in node.children() {
-//         if !first {
-//             writeln!(f)?;
-//         }
+impl From<InvalidPropertyValue> for Error {
+    #[track_caller]
+    fn from(e: InvalidPropertyValue) -> Self {
+        #[cfg(test)]
+        std::println!("{e:?}, {}", core::panic::Location::caller());
+        Error
+    }
+}
 
-//         print_node(f, child, n_spaces + 4)?;
-//         first = false;
-//     }
+impl From<core::fmt::Error> for Error {
+    fn from(_: core::fmt::Error) -> Self {
+        Error
+    }
+}
 
-//     if n_spaces > 0 {
-//         write!(f, "{:width$}", ' ', width = n_spaces)?;
-//     }
+impl From<Error> for core::fmt::Error {
+    fn from(_: Error) -> Self {
+        core::fmt::Error
+    }
+}
 
-//     writeln!(f, "}};")?;
+pub fn print_fdt<'a, P: Parser<'a> + 'a>(
+    f: &mut core::fmt::Formatter<'_>,
+    root: Root<'a, (P, NoPanic)>,
+) -> core::fmt::Result {
+    let res = crate::tryblock!(Error, {
+        let mut any_children = true;
+        let mut any_props;
+        let mut node_iter = root.all_nodes()?.peekable();
+        let (mut n_braces, mut final_depth) = (0, 0);
+        writeln!(f, "/ {{")?;
+        any_props = print_properties(f, root.node, 0)?;
+        loop {
+            let Some((depth, node)) = node_iter.next().transpose()? else { break };
+            let next_depth = match node_iter.peek().cloned().transpose()? {
+                Some((next_depth, _)) => next_depth,
+                None => 0,
+            };
+            let next_is_child = next_depth > depth;
+            any_children = true;
 
-//     Ok(())
-// }
+            if n_braces > 0 {
+                for _ in (0..n_braces).rev() {
+                    final_depth -= 1;
+                    writeln!(f, "{:width$}}};", ' ', width = (final_depth) * 4)?;
+                }
+
+                n_braces = 0;
+            }
+
+            if any_props {
+                writeln!(f)?;
+            }
+
+            writeln!(
+                f,
+                "{:width$}{} {{",
+                ' ',
+                if node.name()?.name.is_empty() {
+                    NodeName { name: "/", unit_address: None }
+                } else {
+                    node.name()?
+                },
+                width = depth * 4,
+            )?;
+
+            any_props = print_properties(f, node, depth)?;
+
+            if !any_props && !next_is_child {
+                writeln!(f)?;
+            }
+
+            if next_depth <= depth {
+                writeln!(f, "{:width$}}};", ' ', width = depth * 4)?;
+
+                if !any_props && !next_is_child {
+                    writeln!(f)?;
+                }
+            }
+
+            if depth > next_depth {
+                n_braces += depth - next_depth;
+                final_depth = depth;
+            } else {
+                n_braces = 0;
+                final_depth = 0;
+            }
+        }
+
+        if any_children {
+            writeln!(f, "    }};")?;
+        }
+
+        write!(f, "}};")?;
+
+        Ok(())
+    });
+
+    #[cfg(test)]
+    std::println!("{res:?}");
+
+    Ok(res?)
+}
+
+fn print_properties<'a, P: Parser<'a>>(
+    f: &mut core::fmt::Formatter<'_>,
+    node: Node<'a, (P, NoPanic)>,
+    depth: usize,
+) -> Result<bool, Error> {
+    let mut any_props = false;
+    for prop in node.properties()? {
+        any_props = true;
+        let prop = prop?;
+
+        match prop.name() {
+            "reg" => {
+                write!(f, "{:width$}reg = <", ' ', width = depth * 4 + 4)?;
+                for (i, reg) in node.reg()?.unwrap().iter::<u64, Option<u64>>().enumerate() {
+                    let reg = reg?;
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+
+                    match reg.len {
+                        Some(size) => write!(f, "{:#04x} {:#04x}", reg.address as usize, size)?,
+                        None => write!(f, "{:#04x}", reg.address as usize)?,
+                    }
+                }
+                writeln!(f, ">;")?;
+            }
+            "compatible" => writeln!(
+                f,
+                "{:width$}compatible = {:?};",
+                ' ',
+                prop.as_value::<&str>()?,
+                width = depth * 4 + 4
+            )?,
+            name if name.contains("-cells") => {
+                writeln!(
+                    f,
+                    "{:width$}{} = <{:#04x}>;",
+                    ' ',
+                    name,
+                    prop.as_value::<u32>()?,
+                    width = depth * 4 + 4
+                )?;
+            }
+            _ => match prop.as_value::<&str>() {
+                Ok(value)
+                    if (!value.is_empty() && value.chars().all(|c| c.is_ascii_graphic()))
+                        || prop.value() == [0] =>
+                {
+                    writeln!(
+                        f,
+                        "{:width$}{} = {:?};",
+                        ' ',
+                        prop.name(),
+                        value,
+                        width = depth * 4 + 4
+                    )?
+                }
+                _ => match prop.value().len() {
+                    0 => writeln!(f, "{:width$}{};", ' ', prop.name(), width = depth * 4 + 4)?,
+                    _ => {
+                        write!(f, "{:width$}{} = <", ' ', prop.name(), width = depth * 4 + 4)?;
+
+                        for (i, n) in prop.as_value::<U32List>()?.iter().enumerate() {
+                            if i != 0 {
+                                write!(f, " ")?;
+                            }
+
+                            write!(f, "{n:#04x}")?;
+                        }
+
+                        writeln!(f, ">;")?;
+                    }
+                },
+            },
+        }
+    }
+
+    Ok(any_props)
+}
