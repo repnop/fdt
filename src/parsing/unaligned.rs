@@ -4,10 +4,7 @@
 
 use crate::FdtError;
 
-use super::{
-    BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock,
-    StructsBlock,
-};
+use super::{BigEndianToken, BigEndianU32, ParseError, Parser, Stream, StringsBlock, StructsBlock};
 
 pub struct UnalignedParser<'a> {
     stream: Stream<'a, u8>,
@@ -74,18 +71,6 @@ impl<'a> Parser<'a> for UnalignedParser<'a> {
         Ok(BigEndianU32::from_be(unsafe { core::ptr::read_unaligned(data.as_ptr().cast::<u32>()) }))
     }
 
-    fn advance_u64(&mut self) -> Result<BigEndianU64, FdtError> {
-        if self.stream.0.len() < core::mem::size_of::<u64>() {
-            return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData));
-        }
-
-        let data = self.stream.0;
-        self.stream.skip_many(4);
-
-        // SAFETY: The buffer has at least 4 bytes available to read
-        Ok(BigEndianU64::from_be(unsafe { core::ptr::read_unaligned(data.as_ptr().cast::<u64>()) }))
-    }
-
     fn advance_cstr(&mut self) -> Result<&'a core::ffi::CStr, FdtError> {
         let cstr = core::ffi::CStr::from_bytes_until_nul(self.stream.0)
             .map_err(|_| ParseError::InvalidCStrValue)?;
@@ -117,19 +102,6 @@ mod tests {
             StructsBlock(&[]),
         );
         let m = parser.advance_u32().unwrap();
-
-        assert_eq!(n, m);
-    }
-
-    #[test]
-    fn advance_u64() {
-        let n = BigEndianU64::from_ne(0xF00DCAFEDEADFEED);
-        let mut parser = UnalignedParser::new(
-            unsafe { core::slice::from_raw_parts(&n as *const BigEndianU64 as *const u8, 8) },
-            StringsBlock(&[]),
-            StructsBlock(&[]),
-        );
-        let m = parser.advance_u64().unwrap();
 
         assert_eq!(n, m);
     }

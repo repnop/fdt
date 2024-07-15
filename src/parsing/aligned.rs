@@ -4,10 +4,7 @@
 
 use crate::FdtError;
 
-use super::{
-    BigEndianToken, BigEndianU32, BigEndianU64, ParseError, Parser, Stream, StringsBlock,
-    StructsBlock,
-};
+use super::{BigEndianToken, BigEndianU32, ParseError, Parser, Stream, StringsBlock, StructsBlock};
 
 pub struct AlignedParser<'a> {
     stream: Stream<'a, u32>,
@@ -77,21 +74,6 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
             .ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))
     }
 
-    fn advance_u64(&mut self) -> Result<BigEndianU64, FdtError> {
-        let (a, b) = self
-            .stream
-            .advance()
-            .map(BigEndianU32)
-            .zip(self.stream.advance().map(BigEndianU32))
-            .ok_or(ParseError::UnexpectedEndOfData)?;
-
-        #[cfg(target_endian = "little")]
-        return Ok(BigEndianU64::from_be((u64::from(b.to_be()) << 32) | u64::from(a.to_be())));
-
-        #[cfg(target_endian = "big")]
-        return Ok(BigEndianU64::from_be((u64::from(a.to_be()) << 32) | u64::from(b.to_be())));
-    }
-
     fn advance_cstr(&mut self) -> Result<&'a core::ffi::CStr, FdtError> {
         // SAFETY: It is safe to reinterpret the stream data to a smaller integer size
         let bytes = unsafe {
@@ -114,23 +96,5 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
         // Round up to the next multiple of 4, if necessary
         let skip = ((n + 3) & !3) / 4;
         self.stream.skip_many(skip);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn advance_u64() {
-        let n = BigEndianU64::from_ne(0xF00DCAFEDEADFEED);
-        let mut parser = AlignedParser::new(
-            unsafe { core::slice::from_raw_parts(&n as *const BigEndianU64 as *const u32, 2) },
-            StringsBlock(&[]),
-            StructsBlock(&[]),
-        );
-        let m = parser.advance_u64().unwrap();
-
-        assert_eq!(n, m);
     }
 }
