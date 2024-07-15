@@ -37,32 +37,6 @@ impl BigEndianU32 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct BigEndianU64(u64);
-
-impl BigEndianU64 {
-    pub const fn from_ne(n: u64) -> Self {
-        Self(n.to_be())
-    }
-
-    pub const fn from_le(n: u64) -> Self {
-        Self(u64::from_le(n).to_be())
-    }
-
-    pub const fn from_be(n: u64) -> Self {
-        Self(n)
-    }
-
-    pub const fn to_ne(self) -> u64 {
-        u64::from_be(self.0)
-    }
-
-    pub const fn to_be(self) -> u64 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(transparent)]
 pub struct BigEndianToken(pub(crate) BigEndianU32);
 
 impl BigEndianToken {
@@ -209,10 +183,6 @@ impl<'a, T: Parser<'a>, U: PanicMode + Clone + Default> Parser<'a> for (T, U) {
         self.0.advance_u32()
     }
 
-    fn advance_u64(&mut self) -> Result<BigEndianU64, FdtError> {
-        self.0.advance_u64()
-    }
-
     fn advance_cstr(&mut self) -> Result<&'a core::ffi::CStr, FdtError> {
         self.0.advance_cstr()
     }
@@ -261,16 +231,11 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
     }
 
     fn advance_u32(&mut self) -> Result<BigEndianU32, FdtError>;
-    fn advance_u64(&mut self) -> Result<BigEndianU64, FdtError>;
     fn advance_cstr(&mut self) -> Result<&'a core::ffi::CStr, FdtError>;
     fn advance_aligned(&mut self, n: usize);
 
     fn peek_u32(&self) -> Result<BigEndianU32, FdtError> {
         self.clone().advance_u32()
-    }
-
-    fn peek_u64(&self) -> Result<BigEndianU64, FdtError> {
-        self.clone().advance_u64()
     }
 
     fn parse_header(&mut self) -> Result<FdtHeader, FdtError> {
