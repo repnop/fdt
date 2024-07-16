@@ -462,6 +462,10 @@ impl<'a> Compatible<'a> {
     pub fn all(self) -> CompatibleIter<'a> {
         CompatibleIter { iter: self.string.split('\0') }
     }
+
+    pub fn compatible_with(self, kind: &str) -> bool {
+        self.all().any(|c| c == kind)
+    }
 }
 
 impl<'a> IntoIterator for Compatible<'a> {

@@ -4,7 +4,9 @@
 
 use crate::{
     nodes::{IntoSearchableNodeName, Node, RawNode, SearchableNodeName},
-    parsing::{aligned::AlignedParser, BigEndianToken, Panic, ParseError, Parser, ParserWithMode},
+    parsing::{
+        aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode,
+    },
     properties::{CellSizes, Compatible, PHandle, Property},
     tryblock, FdtError,
 };
@@ -222,6 +224,30 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
         }))
     }
 
+    /// Returns an iterator that yields every node with the name that matches
+    /// `name` in depth-first order
+    pub fn find_all_nodes_with_name<'b>(
+        self,
+        name: &'b str,
+    ) -> P::Output<AllNodesWithNameIter<'a, 'b, P>> {
+        P::to_output(crate::tryblock!({
+            let this = Root { node: self.node.fallible() };
+            Ok(AllNodesWithNameIter { iter: this.all_nodes()?, name })
+        }))
+    }
+
+    /// Attempt to find a node with the given name, returning the first node
+    /// with a name that matches `name` in depth-first order
+    pub fn find_node_by_name(self, name: &str) -> P::Output<Option<Node<'a, P>>> {
+        P::to_output(crate::tryblock!({
+            let this = Root { node: self.node.fallible() };
+            this.find_all_nodes_with_name(name)?.next().transpose().map(|n| n.map(|n| n.alt()))
+        }))
+    }
+
+    /// Attempt to find a node with the given path (with an optional unit
+    /// address, defaulting to the first matching name if omitted). If you only
+    /// have the node name but not the path, use [`Root::find_node_by_name`] instead.
     #[track_caller]
     pub fn find_node(self, path: &str) -> P::Output<Option<Node<'a, P>>>
     where
@@ -275,7 +301,31 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
         P::to_output(Ok(found_node.map(|n| n.alt::<P>())))
     }
 
-    pub fn all_nodes(self) -> P::Output<AllNodesIterator<'a, P>> {
+    /// Returns an iterator over every node within the devicetree which is
+    /// compatible with at least one of the compatible strings contained within
+    /// `with`
+    #[track_caller]
+    pub fn all_compatible<'b>(self, with: &'b [&str]) -> P::Output<AllCompatibleIter<'a, 'b, P>> {
+        P::to_output(crate::tryblock!({
+            let this = Root { node: self.node.fallible() };
+            let f: fn(_) -> _ =
+                |node: Result<(usize, Node<'a, (P::Parser, NoPanic)>), FdtError>| match node
+                    .and_then(|(_, n)| Ok((n, n.property::<Compatible>()?)))
+                {
+                    Ok((n, compatible)) => Some(Ok((n, compatible?))),
+                    Err(e) => Some(Err(e)),
+                };
+
+            let iter = this.all_nodes()?.filter_map(f);
+
+            Ok(AllCompatibleIter { iter, with })
+        }))
+    }
+
+    /// Returns an iterator over each node in the tree, depth-first, along with
+    /// its depth in the tree
+    #[track_caller]
+    pub fn all_nodes(self) -> P::Output<AllNodesIter<'a, P>> {
         let mut parser = P::new(self.node.this.as_slice(), self.node.strings, self.node.structs);
         let res = tryblock!({
             parser.advance_cstr()?;
@@ -291,7 +341,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
             return P::to_output(Err(e));
         }
 
-        P::to_output(Ok(AllNodesIterator {
+        P::to_output(Ok(AllNodesIter {
             parser,
             parents: [
                 self.node.this.as_slice(),
@@ -329,13 +379,69 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Root<'a, P> {
     }
 }
 
-pub struct AllNodesIterator<'a, P: ParserWithMode<'a>> {
+pub struct AllNodesWithNameIter<'a, 'b, P: ParserWithMode<'a>> {
+    iter: AllNodesIter<'a, (P::Parser, NoPanic)>,
+    name: &'b str,
+}
+
+impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllNodesWithNameIter<'a, 'b, P> {
+    type Item = P::Output<Node<'a, P>>;
+
+    #[track_caller]
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(next) = self.iter.next() {
+            match next.and_then(|(_, n)| Ok((n, n.name()?))) {
+                Ok((node, name)) => match name.name == self.name {
+                    true => return Some(P::to_output(Ok(node.alt()))),
+                    false => continue,
+                },
+                Err(e) => return Some(P::to_output(Err(e))),
+            }
+        }
+
+        None
+    }
+}
+
+/// Iterator created by [`Root::all_compatible`]
+pub struct AllCompatibleIter<'a, 'b, P: ParserWithMode<'a>> {
+    iter: core::iter::FilterMap<
+        AllNodesIter<'a, (P::Parser, NoPanic)>,
+        fn(
+            Result<(usize, Node<'a, (P::Parser, NoPanic)>), FdtError>,
+        ) -> Option<Result<(Node<'a, (P::Parser, NoPanic)>, Compatible<'a>), FdtError>>,
+    >,
+    with: &'b [&'b str],
+}
+
+impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllCompatibleIter<'a, 'b, P> {
+    type Item = P::Output<Node<'a, P>>;
+
+    #[track_caller]
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(next) = self.iter.next() {
+            match next {
+                Ok((node, compatible)) => {
+                    match self.with.iter().copied().any(|c| compatible.compatible_with(c)) {
+                        true => return Some(P::to_output(Ok(node.alt()))),
+                        false => continue,
+                    }
+                }
+                Err(e) => return Some(P::to_output(Err(e))),
+            }
+        }
+
+        None
+    }
+}
+
+pub struct AllNodesIter<'a, P: ParserWithMode<'a>> {
     parser: P,
     parents: [&'a [<P as Parser<'a>>::Granularity]; 16],
     parent_index: usize,
 }
 
-impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIterator<'a, P> {
+impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIter<'a, P> {
     type Item = P::Output<(usize, Node<'a, P>)>;
 
     #[track_caller]
