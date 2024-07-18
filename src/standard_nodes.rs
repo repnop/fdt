@@ -3,7 +3,7 @@
 // obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::{
-    nodes::{IntoSearchableNodeName, Node, RawNode, SearchableNodeName},
+    nodes::{FallibleNode, IntoSearchableNodeName, Node, RawNode, SearchableNodeName},
     parsing::{
         aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode,
     },
@@ -16,7 +16,7 @@ pub struct Chosen<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     pub(crate) node: Node<'a, P>,
 }
 
-impl<'a, P: ParserWithMode<'a> + 'a> Chosen<'a, P> {
+impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
     /// Contains the bootargs, if they exist
     #[track_caller]
     pub fn bootargs(self) -> P::Output<Option<&'a str>> {
@@ -51,7 +51,9 @@ impl<'a, P: ParserWithMode<'a> + 'a> Chosen<'a, P> {
                     Ok(property) => match property.name() == "stdout-path" {
                         false => None,
                         true => Some(property.as_value::<&'a str>().map_err(Into::into).map(|s| {
-                            let (path, params) = Self::split_stdinout_property(s);
+                            let (path, params) = s
+                                .split_once(':')
+                                .map_or_else(|| (s, None), |(name, params)| (name, Some(params)));
                             StdInOutPath { path, params }
                         })),
                     },
@@ -75,20 +77,16 @@ impl<'a, P: ParserWithMode<'a> + 'a> Chosen<'a, P> {
                     Err(e) => Some(Err(e)),
                     Ok(property) => match property.name() == "stdin-path" {
                         false => None,
-                        true => Some(property.as_value::<&'a str>().map_err(Into::into).map(|s| {
-                            let (path, params) = Self::split_stdinout_property(s);
+                        true => Some(property.as_value::<&str>().map_err(Into::into).map(|s| {
+                            let (path, params) = s
+                                .split_once(':')
+                                .map_or_else(|| (s, None), |(name, params)| (name, Some(params)));
                             StdInOutPath { path, params }
                         })),
                     },
                 })
                 .transpose()
         }))
-    }
-
-    fn split_stdinout_property(property: &str) -> (&str, Option<&str>) {
-        property
-            .split_once(':')
-            .map_or_else(|| (property, None), |(name, params)| (name, Some(params)))
     }
 }
 
@@ -147,7 +145,13 @@ pub struct Root<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
-    /// Root node cell sizes
+    /// [Devicetree 3.2. Root
+    /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#root-node)
+    ///
+    /// **Required**
+    ///
+    /// Specifies the number of <u32> cells to represent the address and length
+    /// in the reg property in children of root.
     #[track_caller]
     pub fn cell_sizes(self) -> P::Output<CellSizes> {
         P::to_output(crate::tryblock!({
@@ -161,23 +165,19 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// [Devicetree 3.2. Root
     /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#root-node)
     ///
+    /// **Required**
+    ///
     /// Specifies a string that uniquely identifies the model of the system
     /// board. The recommended format is "manufacturer,model-number".
     #[track_caller]
     pub fn model(self) -> P::Output<&'a str> {
         P::to_output(crate::tryblock!({
             let node = self.node.fallible();
-            node.properties()?
-                .into_iter()
-                .find_map(|n| match n {
-                    Err(e) => Some(Err(e)),
-                    Ok(property) => match property.name() == "model" {
-                        false => None,
-                        true => Some(property.as_value::<&'a str>().map_err(Into::into)),
-                    },
-                })
-                .transpose()?
-                .ok_or(FdtError::MissingRequiredProperty("model"))
+            node.properties()?.find("model").and_then(|p| {
+                p.ok_or(FdtError::MissingRequiredProperty("model"))?
+                    .as_value::<&'a str>()
+                    .map_err(Into::into)
+            })
         }))
     }
 
@@ -192,25 +192,57 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// `"manufacturer,model"`
     ///
     /// For example: `compatible = "fsl,mpc8572ds"`
-    pub fn compatible(self) -> P::Output<Compatible<'a>> {
+    pub fn compatible(&self) -> P::Output<Compatible<'a>> {
         P::to_output(crate::tryblock!({
             <Compatible as Property<'a, P>>::parse(self.node.fallible(), self.node.make_root()?)?
                 .ok_or(FdtError::MissingRequiredProperty("compatible"))
         }))
     }
 
-    /// Returns an iterator over all of the available properties
-    // pub fn properties(self) -> impl Iterator<Item = NodeProperty<'a>> + 'a {
-    //     self.node.properties()
-    // }
+    /// [Devicetree 3.2. Root
+    /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#root-node)
+    ///
+    /// **Optional**
+    ///
+    /// Specifies a string representing the device’s serial number.
+    pub fn serial_number(&self) -> P::Output<Option<&'a str>> {
+        P::to_output(crate::tryblock!({
+            match self.node.fallible().properties()?.find("serial-number")? {
+                Some(prop) => Ok(Some(prop.as_value()?)),
+                None => Ok(None),
+            }
+        }))
+    }
 
-    /// Attempts to find the a property by its name
-    // pub fn property(self, name: &str) -> Option<NodeProperty<'a>> {
-    //     self.node.properties().find(|p| p.name == name)
-    // }
+    /// [Devicetree 3.2. Root
+    /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#root-node)
+    ///
+    /// **Optional, but Recommended**
+    ///
+    /// Specifies a string that identifies the form-factor of the system. The
+    /// property value can be one of:
+    ///
+    /// * "desktop"
+    /// * "laptop"
+    /// * "convertible"
+    /// * "server"
+    /// * "tablet"
+    /// * "handset"
+    /// * "watch"
+    /// * "embedded"
+    pub fn chassis_type(&self) -> P::Output<Option<&'a str>> {
+        P::to_output(crate::tryblock!({
+            match self.node.fallible().properties()?.find("serial-number")? {
+                Some(prop) => Ok(Some(prop.as_value()?)),
+                None => Ok(None),
+            }
+        }))
+    }
 
+    /// Attempt to resolve a [`PHandle`] to the node containing a `phandle`
+    /// property with the value
     #[track_caller]
-    pub fn resolve_phandle(self, phandle: PHandle) -> P::Output<Option<Node<'a, P>>> {
+    pub fn resolve_phandle(&self, phandle: PHandle) -> P::Output<Option<Node<'a, P>>> {
         P::to_output(crate::tryblock!({
             let this = Root { node: self.node.fallible() };
             for node in this.all_nodes()? {
@@ -249,10 +281,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// address, defaulting to the first matching name if omitted). If you only
     /// have the node name but not the path, use [`Root::find_node_by_name`] instead.
     #[track_caller]
-    pub fn find_node(self, path: &str) -> P::Output<Option<Node<'a, P>>>
-    where
-        P: 'a,
-    {
+    pub fn find_node(self, path: &str) -> P::Output<Option<Node<'a, P>>> {
         if path == "/" {
             return P::to_output(Ok(Some(self.node)));
         }
@@ -501,34 +530,36 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIter<'a, P> {
     }
 }
 
-// /// Represents the `/aliases` node with specific helper methods
-// #[derive(Debug, Clone, Copy)]
-// pub struct Aliases<'b, 'a: 'b> {
-//     pub(crate) header: &'b Fdt<'a, crate::UnalignedParser<'a>>,
-//     pub(crate) node: FdtNode<'b, 'a>,
-// }
+/// Represents the `/aliases` node with specific helper methods
+#[derive(Debug, Clone, Copy)]
+pub struct Aliases<'a, P: ParserWithMode<'a>> {
+    pub(crate) node: FallibleNode<'a, P>,
+}
 
-// impl<'b, 'a: 'b> Aliases<'b, 'a> {
-//     /// Attempt to resolve an alias to a node name
-//     pub fn resolve(self, alias: &str) -> Option<&'a str> {
-//         self.node
-//             .properties()
-//             .find(|p| p.name == alias)
-//             .and_then(|p| core::str::from_utf8(p.value).map(|s| s.trim_end_matches('\0')).ok())
-//     }
+impl<'a, P: ParserWithMode<'a>> Aliases<'a, P> {
+    /// Attempt to resolve an alias to a node name
+    pub fn resolve_name(self, alias: &str) -> P::Output<Option<&'a str>> {
+        P::to_output(crate::tryblock!({
+            self.node
+                .properties()?
+                .find(alias)?
+                .map(|p| p.as_value().map_err(Into::into))
+                .transpose()
+        }))
+    }
 
-//     /// Attempt to find the node specified by the given alias
-//     pub fn resolve_node(self, alias: &str) -> Option<FdtNode<'b, 'a>> {
-//         self.resolve(alias).and_then(|name| self.header.find_node(name))
-//     }
+    /// Attempt to find the node specified by the given alias
+    pub fn resolve(self, alias: &str) -> P::Output<Option<Node<'a, P>>> {
+        P::to_output(crate::tryblock!({
+            let Some(path) = Aliases::<(_, NoPanic)> { node: self.node }.resolve_name(alias)?
+            else {
+                return Ok(None);
+            };
 
-//     /// Returns an iterator over all of the available aliases
-//     pub fn all(self) -> impl Iterator<Item = (&'a str, &'a str)> + 'b {
-//         self.node.properties().filter_map(|p| {
-//             Some((p.name, core::str::from_utf8(p.value).map(|s| s.trim_end_matches('\0')).ok()?))
-//         })
-//     }
-// }
+            self.node.make_root::<P::Parser>()?.find_node(path).map(|r| r.map(|n| n.alt()))
+        }))
+    }
+}
 
 // /// Represents a `/cpus/cpu*` node with specific helper methods
 // #[derive(Debug, Clone, Copy)]

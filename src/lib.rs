@@ -82,6 +82,8 @@ pub enum FdtError {
     BadMagic,
     /// The given pointer was null
     BadPtr,
+    /// The provided slice is smaller than the required size given by the header
+    SliceTooSmall,
     /// An error was encountered during parsing
     ParseError(ParseError),
     PHandleNotFound(u32),
@@ -102,6 +104,7 @@ impl core::fmt::Display for FdtError {
         match self {
             FdtError::BadMagic => write!(f, "bad FDT magic value"),
             FdtError::BadPtr => write!(f, "an invalid pointer was passed"),
+            FdtError::SliceTooSmall => write!(f, "provided slice is too small"),
             FdtError::ParseError(e) => core::fmt::Display::fmt(e, f),
             FdtError::PHandleNotFound(value) => write!(
                 f,
@@ -126,9 +129,9 @@ impl core::fmt::Display for FdtError {
 /// which looks similar to `dtc`'s output, enable the `pretty-printing` feature
 #[derive(Clone, Copy)]
 pub struct Fdt<'a, P: ParserWithMode<'a>> {
-    parser: P,
+    structs: StructsBlock<'a, P::Granularity>,
+    strings: StringsBlock<'a>,
     header: FdtHeader,
-    _lifetime: core::marker::PhantomData<&'a [u8]>,
 }
 
 impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Fdt<'a, P> {
@@ -137,23 +140,15 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Fdt<'a, P> {
     }
 }
 
-impl<'a, P: ParserWithMode<'a> + 'a> core::fmt::Display for Fdt<'a, P> {
+impl<'a, P: ParserWithMode<'a>> core::fmt::Display for Fdt<'a, P> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let this: Fdt<'a, (P::Parser, NoPanic)> = Fdt {
-            _lifetime: core::marker::PhantomData,
-            header: self.header,
-            parser: <(P::Parser, NoPanic)>::new(
-                self.parser.data(),
-                self.parser.strings(),
-                self.parser.structs(),
-            ),
-        };
+        let mut parser: (P::Parser, NoPanic) = <_>::new(self.structs.0, self.strings, self.structs);
 
-        let Ok(root) = this.root() else {
+        let Ok(node) = parser.parse_root() else {
             return Err(core::fmt::Error);
         };
 
-        pretty_print::print_fdt(f, root)
+        pretty_print::print_fdt(f, Root { node })
     }
 }
 
@@ -194,6 +189,13 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
     pub fn new_unaligned(data: &'a [u8]) -> Result<Self, FdtError> {
         let mut parser = UnalignedParser::new(data, StringsBlock(&[]), StructsBlock(&[]));
         let header = parser.parse_header()?;
+
+        if data.len() < (header.strings_offset + header.strings_size) as usize {
+            return Err(FdtError::SliceTooSmall);
+        } else if data.len() < (header.structs_offset + header.structs_size) as usize {
+            return Err(FdtError::SliceTooSmall);
+        }
+
         let strings =
             StringsBlock(&data[header.strings_offset as usize..][..header.strings_size as usize]);
         let structs =
@@ -202,14 +204,10 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
         if !header.valid_magic() {
             return Err(FdtError::BadMagic);
         } else if data.len() < header.total_size as usize {
-            return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData));
+            return Err(FdtError::SliceTooSmall);
         }
 
-        Ok(Self {
-            header,
-            parser: (UnalignedParser::new(structs.0, strings, structs), Panic),
-            _lifetime: core::marker::PhantomData,
-        })
+        Ok(Self { header, structs, strings })
     }
 
     /// # Safety
@@ -238,6 +236,12 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
         let mut parser = AlignedParser::new(data, StringsBlock(&[]), StructsBlock(&[]));
         let header = parser.parse_header()?;
 
+        if data.len() < (header.strings_offset + header.strings_size) as usize / 4 {
+            return Err(FdtError::SliceTooSmall);
+        } else if data.len() < (header.structs_offset + header.structs_size) as usize / 4 {
+            return Err(FdtError::SliceTooSmall);
+        }
+
         let strings_start = header.strings_offset as usize;
         let strings_end = strings_start + header.strings_size as usize;
         let strings = StringsBlock(
@@ -259,11 +263,7 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
             return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData));
         }
 
-        Ok(Self {
-            header,
-            parser: (AlignedParser::new(structs.0, strings, structs), Panic),
-            _lifetime: core::marker::PhantomData,
-        })
+        Ok(Self { header, strings, structs })
     }
 
     /// # Safety
@@ -289,60 +289,32 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
 impl<'a> Fdt<'a, (UnalignedParser<'a>, NoPanic)> {
     /// Construct a new `Fdt` from a byte buffer
     pub fn new_unaligned_fallible(data: &'a [u8]) -> Result<Self, FdtError> {
-        let Fdt { parser, header, .. } = Fdt::new_unaligned(data)?;
-        Ok(Self {
-            parser: (
-                UnalignedParser::new(parser.data(), parser.strings(), parser.structs()),
-                NoPanic,
-            ),
-            header,
-            _lifetime: core::marker::PhantomData,
-        })
+        let Fdt { header, strings, structs } = Fdt::new_unaligned(data)?;
+        Ok(Self { header, strings, structs })
     }
 
     /// # Safety
     /// This function performs a read to verify the magic value. If the pointer
     /// is invalid this can result in undefined behavior.
     pub unsafe fn from_ptr_unaligned_fallible(ptr: *const u8) -> Result<Self, FdtError> {
-        let Fdt { parser, header, .. } = Fdt::from_ptr_unaligned(ptr)?;
-        Ok(Self {
-            parser: (
-                UnalignedParser::new(parser.data(), parser.strings(), parser.structs()),
-                NoPanic,
-            ),
-            header,
-            _lifetime: core::marker::PhantomData,
-        })
+        let Fdt { header, strings, structs } = Fdt::from_ptr_unaligned(ptr)?;
+        Ok(Self { header, strings, structs })
     }
 }
 
 impl<'a> Fdt<'a, (AlignedParser<'a>, NoPanic)> {
     /// Construct a new `Fdt` from a `u32`-aligned buffer which won't panic on invalid data
     pub fn new_fallible(data: &'a [u32]) -> Result<Self, FdtError> {
-        let Fdt { parser, header, .. } = Fdt::new(data)?;
-        Ok(Self {
-            parser: (
-                AlignedParser::new(parser.data(), parser.strings(), parser.structs()),
-                NoPanic,
-            ),
-            header,
-            _lifetime: core::marker::PhantomData,
-        })
+        let Fdt { header, strings, structs } = Fdt::new(data)?;
+        Ok(Self { header, strings, structs })
     }
 
     /// # Safety
     /// This function performs a read to verify the magic value. If the pointer
     /// is invalid this can result in undefined behavior.
     pub unsafe fn from_ptr_fallible(ptr: *const u32) -> Result<Self, FdtError> {
-        let Fdt { parser, header, .. } = Fdt::from_ptr(ptr)?;
-        Ok(Self {
-            parser: (
-                AlignedParser::new(parser.data(), parser.strings(), parser.structs()),
-                NoPanic,
-            ),
-            header,
-            _lifetime: core::marker::PhantomData,
-        })
+        let Fdt { header, strings, structs } = Fdt::from_ptr(ptr)?;
+        Ok(Self { header, strings, structs })
     }
 }
 
@@ -414,7 +386,7 @@ impl<'a, P: ParserWithMode<'a>> Fdt<'a, P> {
 
     /// Return the root (`/`) node, which is always available
     pub fn root(&self) -> P::Output<Root<'a, P>> {
-        let mut parser = self.parser.clone();
+        let mut parser = P::new(self.structs.0, self.strings, self.structs);
         P::to_output(parser.parse_root().map(|node| Root { node }))
     }
 
@@ -555,10 +527,10 @@ impl<'a, P: ParserWithMode<'a>> Fdt<'a, P> {
     }
 
     pub fn strings_block(&self) -> &'a [u8] {
-        self.parser.strings().0
+        self.strings.0
     }
 
     pub fn structs_block(&self) -> &'a [P::Granularity] {
-        self.parser.structs().0
+        self.structs.0
     }
 }
