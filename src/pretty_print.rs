@@ -46,7 +46,7 @@ impl From<Error> for core::fmt::Error {
     }
 }
 
-pub fn print_fdt<'a, P: Parser<'a> + 'a>(
+pub fn print_fdt<'a, P: Parser<'a>>(
     f: &mut core::fmt::Formatter<'_>,
     root: Root<'a, (P, NoPanic)>,
 ) -> core::fmt::Result {

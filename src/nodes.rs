@@ -70,6 +70,8 @@ impl core::fmt::Display for NodeName<'_> {
     }
 }
 
+pub type FallibleNode<'a, P: ParserWithMode<'a>> = Node<'a, (P::Parser, NoPanic)>;
+
 pub struct Node<'a, P: ParserWithMode<'a>> {
     pub(crate) this: &'a RawNode<<P as Parser<'a>>::Granularity>,
     pub(crate) parent: Option<&'a RawNode<<P as Parser<'a>>::Granularity>>,
@@ -365,7 +367,7 @@ pub struct NodeChildren<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> 
 }
 
 impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
-    pub fn iter(self) -> NodeChildrenIter<'a, P> {
+    pub fn iter(&self) -> NodeChildrenIter<'a, P> {
         NodeChildrenIter {
             children: NodeChildren {
                 data: self.data,
@@ -404,9 +406,8 @@ impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
     pub fn find<'n, N>(&self, name: N) -> P::Output<Option<Node<'a, P>>>
     where
         N: IntoSearchableNodeName<'n>,
-        P: 'a,
     {
-        let this: NodeChildren<'a, (P::Parser, NoPanic)> = NodeChildren {
+        let this: NodeChildren<(P::Parser, NoPanic)> = NodeChildren {
             data: self.data,
             parent: self.parent,
             strings: self.strings,
@@ -448,7 +449,7 @@ pub struct NodeChildrenIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Pani
     children: NodeChildren<'a, (P::Parser, NoPanic)>,
 }
 
-impl<'a, P: ParserWithMode<'a> + 'a> Iterator for NodeChildrenIter<'a, P> {
+impl<'a, P: ParserWithMode<'a>> Iterator for NodeChildrenIter<'a, P> {
     type Item = P::Output<Node<'a, P>>;
 
     #[track_caller]
