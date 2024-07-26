@@ -131,8 +131,8 @@ impl<'a> StdInOutPath<'a> {
     /// let stdout = chosen.stdout().unwrap();
     /// let stdin = chosen.stdin().unwrap();
     ///
-    /// assert_eq!((stdout.path(), stdout.params()), ("soc/uart@10000000", None));
-    /// assert_eq!((stdin.path(), stdin.params()), ("soc/uart@10000000", Some("115200")));
+    /// assert_eq!((stdout.path(), stdout.params()), ("/soc/uart@10000000", None));
+    /// assert_eq!((stdin.path(), stdin.params()), ("/soc/uart@10000000", Some("115200")));
     /// ```
     pub fn params(&self) -> Option<&'a str> {
         self.params
