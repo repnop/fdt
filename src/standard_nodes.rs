@@ -7,7 +7,10 @@ use crate::{
     parsing::{
         aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode,
     },
-    properties::{CellSizes, Compatible, PHandle, Property},
+    properties::{
+        AddressCells, BuildCellCollector, CellCollector, CellSizes, CollectCellsError, Compatible,
+        PHandle, Property,
+    },
     tryblock, FdtError,
 };
 
@@ -448,7 +451,7 @@ impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllCompatibleIter<'a, 'b, P> {
 
     #[track_caller]
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(next) = self.iter.next() {
+        for next in self.iter.by_ref() {
             match next {
                 Ok((node, compatible)) => {
                     match self.with.iter().copied().any(|c| compatible.compatible_with(c)) {
@@ -561,98 +564,211 @@ impl<'a, P: ParserWithMode<'a>> Aliases<'a, P> {
     }
 }
 
-// /// Represents a `/cpus/cpu*` node with specific helper methods
-// #[derive(Debug, Clone, Copy)]
-// pub struct Cpu<'b, 'a: 'b> {
-//     pub(crate) parent: FdtNode<'b, 'a>,
-//     pub(crate) node: FdtNode<'b, 'a>,
-// }
+/// Represents a `/cpus/cpu*` node with specific helper methods
+#[derive(Debug, Clone, Copy)]
+pub struct Cpu<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    node: FallibleNode<'a, P>,
+}
 
-// impl<'b, 'a: 'b> Cpu<'b, 'a> {
-//     /// Return the IDs for the given CPU
-//     pub fn ids(self) -> CpuIds<'a> {
-//         let address_cells = self.node.parent_cell_sizes().address_cells;
+impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
+    /// [Devicetree 3.8.1
+    /// `reg`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
+    ///
+    /// **Required**
+    ///
+    /// The value of `reg` is a `<prop-encoded-array>` that defines a unique
+    /// CPU/thread id for the CPU/threads represented by the CPU node.
+    ///
+    /// If a CPU supports more than one thread (i.e. multiple streams of
+    /// execution) the `reg` property is an array with 1 element per thread. The
+    /// `#address-cells` on the `/cpus` node specifies how many cells each
+    /// element of the array takes. Software can determine the number of threads
+    /// by dividing the size of `reg` by the parent node’s `#address-cells`.
+    ///
+    /// If a CPU/thread can be the target of an external interrupt the `reg`
+    /// property value must be a unique CPU/thread id that is addressable by the
+    /// interrupt controller.
+    ///
+    /// If a CPU/thread cannot be the target of an external interrupt, then
+    /// `reg` must be unique and out of bounds of the range addressed by the
+    /// interrupt controller
+    ///
+    /// If a CPU/thread’s PIR (pending interrupt register) is modifiable, a
+    /// client program should modify PIR to match the `reg` property value. If
+    /// PIR cannot be modified and the PIR value is distinct from the interrupt
+    /// controller number space, the CPUs binding may define a binding-specific
+    /// representation of PIR values if desired.
+    pub fn reg<C: CellCollector>(self) -> P::Output<CpuIds<'a, C>> {
+        P::to_output(crate::tryblock!({
+            let Some(reg) = self.node.properties()?.find("reg")? else {
+                return Err(FdtError::MissingRequiredProperty("reg"));
+            };
 
-//         CpuIds {
-//             reg: self
-//                 .node
-//                 .properties()
-//                 .find(|p| p.name == "reg")
-//                 .expect("reg is a required property of cpu nodes"),
-//             address_cells,
-//         }
-//     }
+            if reg.value().is_empty() {
+                return Err(FdtError::InvalidPropertyValue);
+            }
 
-//     /// `clock-frequency` property
-//     pub fn clock_frequency(self) -> usize {
-//         self.node
-//             .properties()
-//             .find(|p| p.name == "clock-frequency")
-//             .or_else(|| self.parent.property("clock-frequency"))
-//             .map(|p| match p.value.len() {
-//                 4 => BigEndianU32::from_bytes(p.value).unwrap().to_ne() as usize,
-//                 8 => BigEndianU64::from_bytes(p.value).unwrap().to_ne() as usize,
-//                 _ => unreachable!(),
-//             })
-//             .expect("clock-frequency is a required property of cpu nodes")
-//     }
+            let Some(address_cells) = self.node.parent().unwrap().property::<AddressCells>()?
+            else {
+                return Err(FdtError::MissingRequiredProperty("#address-cells"));
+            };
 
-//     /// `timebase-frequency` property
-//     pub fn timebase_frequency(self) -> usize {
-//         self.node
-//             .properties()
-//             .find(|p| p.name == "timebase-frequency")
-//             .or_else(|| self.parent.property("timebase-frequency"))
-//             .map(|p| match p.value.len() {
-//                 4 => BigEndianU32::from_bytes(p.value).unwrap().to_ne() as usize,
-//                 8 => BigEndianU64::from_bytes(p.value).unwrap().to_ne() as usize,
-//                 _ => unreachable!(),
-//             })
-//             .expect("timebase-frequency is a required property of cpu nodes")
-//     }
+            Ok(CpuIds {
+                reg: reg.value(),
+                address_cells: address_cells.0,
+                _collector: core::marker::PhantomData,
+            })
+        }))
+    }
 
-//     /// Returns an iterator over all of the properties for the CPU node
-//     pub fn properties(self) -> impl Iterator<Item = NodeProperty<'a>> + 'b {
-//         self.node.properties()
-//     }
+    /// [Devicetree 3.8.1
+    /// `clock-frequency`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
+    ///
+    /// **Required**
+    ///
+    /// Specifies the current clock speed of the CPU in Hertz. The value is a
+    /// `<prop-encoded-array>` in one of two forms:
+    ///
+    /// * A 32-bit integer consisting of one `<u32>` specifying the frequency.
+    /// * A 64-bit integer represented as a `<u64>` specifying the frequency.
+    pub fn clock_frequency(self) -> P::Output<u64> {
+        P::to_output(crate::tryblock!({
+            match self.node.properties()?.find("clock-frequency")? {
+                Some(prop) => match prop.value().len() {
+                    4 => Ok(u64::from(prop.as_value::<u32>()?)),
+                    8 => Ok(prop.as_value::<u64>()?),
+                    _ => Err(FdtError::InvalidPropertyValue),
+                },
+                None => {
+                    let prop = self
+                        .node
+                        .parent()
+                        .unwrap()
+                        .properties()?
+                        .find("clock-frequency")?
+                        .ok_or(FdtError::MissingRequiredProperty("clock-frequency"))?;
 
-//     /// Attempts to find the a property by its name
-//     pub fn property(self, name: &str) -> Option<NodeProperty<'a>> {
-//         self.node.properties().find(|p| p.name == name)
-//     }
-// }
+                    match prop.value().len() {
+                        4 => Ok(u64::from(prop.as_value::<u32>()?)),
+                        8 => Ok(prop.as_value::<u64>()?),
+                        _ => Err(FdtError::InvalidPropertyValue),
+                    }
+                }
+            }
+        }))
+    }
 
-// /// Represents the value of the `reg` property of a `/cpus/cpu*` node which may
-// /// contain more than one CPU or thread ID
-// #[derive(Debug, Clone, Copy)]
-// pub struct CpuIds<'a> {
-//     pub(crate) reg: NodeProperty<'a>,
-//     pub(crate) address_cells: usize,
-// }
+    /// [Devicetree 3.8.1
+    /// `timebase-frequency`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
+    ///
+    /// **Required**
+    ///
+    /// Specifies the current frequency at which the timebase and decrementer
+    /// registers are updated (in Hertz). The value is a `<prop-encoded-array>` in
+    /// one of two forms:
+    ///
+    /// * A 32-bit integer consisting of one `<u32>` specifying the frequency.
+    /// * A 64-bit integer represented as a `<u64>`.
+    pub fn timebase_frequency(self) -> P::Output<u64> {
+        P::to_output(crate::tryblock!({
+            match self.node.properties()?.find("timebase-frequency")? {
+                Some(prop) => match prop.value().len() {
+                    4 => Ok(u64::from(prop.as_value::<u32>()?)),
+                    8 => Ok(prop.as_value::<u64>()?),
+                    _ => Err(FdtError::InvalidPropertyValue),
+                },
+                None => {
+                    let prop = self
+                        .node
+                        .parent()
+                        .unwrap()
+                        .properties()?
+                        .find("timebase-frequency")?
+                        .ok_or(FdtError::MissingRequiredProperty("timebase-frequency"))?;
 
-// impl<'a> CpuIds<'a> {
-//     /// The first listed CPU ID, which will always exist
-//     pub fn first(self) -> usize {
-//         match self.address_cells {
-//             1 => BigEndianU32::from_bytes(self.reg.value).unwrap().to_ne() as usize,
-//             2 => BigEndianU64::from_bytes(self.reg.value).unwrap().to_ne() as usize,
-//             n => panic!("address-cells of size {} is currently not supported", n),
-//         }
-//     }
+                    match prop.value().len() {
+                        4 => Ok(u64::from(prop.as_value::<u32>()?)),
+                        8 => Ok(prop.as_value::<u64>()?),
+                        _ => Err(FdtError::InvalidPropertyValue),
+                    }
+                }
+            }
+        }))
+    }
+}
 
-//     /// Returns an iterator over all of the listed CPU IDs
-//     pub fn all(self) -> impl Iterator<Item = usize> + 'a {
-//         let mut vals = FdtData::new(self.reg.value);
-//         core::iter::from_fn(move || match vals.remaining() {
-//             [] => None,
-//             _ => Some(match self.address_cells {
-//                 1 => vals.u32()?.to_ne() as usize,
-//                 2 => vals.u64()?.to_ne() as usize,
-//                 n => panic!("address-cells of size {} is currently not supported", n),
-//             }),
-//         })
-//     }
-// }
+/// See [`Cpu::reg`]
+pub struct CpuIds<'a, C: CellCollector> {
+    reg: &'a [u8],
+    address_cells: usize,
+    _collector: core::marker::PhantomData<*mut C>,
+}
+
+impl<'a, C: CellCollector> CpuIds<'a, C> {
+    /// The first listed CPU ID, which will always exist
+    pub fn first(&self) -> Result<C::Output, CollectCellsError> {
+        self.iter().next().unwrap()
+    }
+
+    pub fn iter(&self) -> CpuIdsIter<'a, C> {
+        CpuIdsIter {
+            reg: self.reg,
+            address_cells: self.address_cells,
+            _collector: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<C: CellCollector> Copy for CpuIds<'_, C> {}
+impl<C: CellCollector> Clone for CpuIds<'_, C> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'a, C: CellCollector> core::fmt::Debug for CpuIds<'a, C> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CpuIds")
+            .field("reg", &self.reg)
+            .field("address_cells", &self.address_cells)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug)]
+pub struct CpuIdsIter<'a, C: CellCollector> {
+    reg: &'a [u8],
+    address_cells: usize,
+    _collector: core::marker::PhantomData<*mut C>,
+}
+
+impl<C: CellCollector> Clone for CpuIdsIter<'_, C> {
+    fn clone(&self) -> Self {
+        Self {
+            address_cells: self.address_cells,
+            reg: self.reg,
+            _collector: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, C: CellCollector> Iterator for CpuIdsIter<'a, C> {
+    type Item = Result<C::Output, CollectCellsError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let (this_cell, rest) = self.reg.split_at_checked(self.address_cells * 4)?;
+        self.reg = rest;
+
+        let mut collector = <C as CellCollector>::Builder::default();
+
+        for cell in this_cell.chunks_exact(4) {
+            if let Err(e) = collector.push(u32::from_be_bytes(cell.try_into().unwrap())) {
+                return Some(Err(e));
+            }
+        }
+
+        Some(Ok(C::map(collector.finish())))
+    }
+}
 
 /// Represents the `/memory` node with specific helper methods
 // #[derive(Debug, Clone, Copy)]
