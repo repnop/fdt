@@ -1,7 +1,7 @@
 use crate::{
     parsing::{
-        aligned::AlignedParser, BigEndianToken, NoPanic, Panic, PanicMode, ParseError, Parser,
-        ParserWithMode, StringsBlock, StructsBlock,
+        aligned::AlignedParser, BigEndianToken, NoPanic, Panic, PanicMode, ParseError, Parser, ParserWithMode,
+        StringsBlock, StructsBlock,
     },
     properties::{InvalidPropertyValue, Property, PropertyValue, Reg},
     standard_nodes::Root,
@@ -40,10 +40,9 @@ impl crate::sealed::Sealed for &'_ str {}
 impl<'a> IntoSearchableNodeName<'a> for &'a str {
     fn into_searchable_node_name(self) -> SearchableNodeName<'a> {
         match self.rsplit_once('@') {
-            Some((base, unit_address)) => SearchableNodeName::WithUnitAddress(NodeName {
-                name: base,
-                unit_address: Some(unit_address),
-            }),
+            Some((base, unit_address)) => {
+                SearchableNodeName::WithUnitAddress(NodeName { name: base, unit_address: Some(unit_address) })
+            }
             None => SearchableNodeName::Base(self),
         }
     }
@@ -111,9 +110,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
         P::to_output(
             P::new(&self.this.0, self.strings, self.structs)
                 .advance_cstr()
-                .and_then(|s| {
-                    s.to_str().map_err(|_| FdtError::ParseError(ParseError::InvalidCStrValue))
-                })
+                .and_then(|s| s.to_str().map_err(|_| FdtError::ParseError(ParseError::InvalidCStrValue)))
                 .map(|s| {
                     if s.is_empty() {
                         return NodeName { name: "/", unit_address: None };
@@ -232,9 +229,7 @@ pub struct NodeProperties<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)
 }
 
 impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
-    pub(crate) fn alt<P2: ParserWithMode<'a, Granularity = P::Granularity>>(
-        self,
-    ) -> NodeProperties<'a, P2> {
+    pub(crate) fn alt<P2: ParserWithMode<'a, Granularity = P::Granularity>>(self) -> NodeProperties<'a, P2> {
         NodeProperties {
             data: self.data,
             strings: self.strings,
@@ -252,15 +247,11 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
 
         match parser.peek_token() {
             Ok(BigEndianToken::PROP) => {}
-            Ok(BigEndianToken::BEGIN_NODE) | Ok(BigEndianToken::END_NODE) => {
-                return P::to_output(Ok(None))
-            }
+            Ok(BigEndianToken::BEGIN_NODE) | Ok(BigEndianToken::END_NODE) => return P::to_output(Ok(None)),
             Ok(_) => {
                 return P::to_output(Err(ParseError::UnexpectedToken.into()));
             }
-            Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => {
-                return P::to_output(Ok(None))
-            }
+            Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => return P::to_output(Ok(None)),
             Err(e) => return P::to_output(Err(e)),
         }
 
@@ -386,9 +377,7 @@ impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
             Ok(BigEndianToken::BEGIN_NODE) => {}
             Ok(BigEndianToken::END_NODE) => return P::to_output(Ok(None)),
             Ok(_) => return P::to_output(Err(ParseError::UnexpectedToken.into())),
-            Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => {
-                return P::to_output(Ok(None))
-            }
+            Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => return P::to_output(Ok(None)),
             Err(e) => return P::to_output(Err(e)),
         }
 
@@ -424,9 +413,7 @@ impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
                         Err(e) => Some(Err(e)),
                         Ok(nn) => match name {
                             SearchableNodeName::Base(base) => (nn.name == base).then_some(Ok(node)),
-                            SearchableNodeName::WithUnitAddress(snn) => {
-                                (nn == snn).then_some(Ok(node))
-                            }
+                            SearchableNodeName::WithUnitAddress(snn) => (nn == snn).then_some(Ok(node)),
                         },
                     },
                 })

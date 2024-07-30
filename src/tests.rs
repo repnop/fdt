@@ -42,8 +42,7 @@ impl<const N: usize> Align4<N> {
     }
 }
 
-static TEST: Align4<3764> =
-    Align4::new(AlignArrayUp(*include_bytes!("../dtb/test.dtb")).align_up::<3764>());
+static TEST: Align4<3764> = Align4::new(AlignArrayUp(*include_bytes!("../dtb/test.dtb")).align_up::<3764>());
 static ISSUE_3: Align4<4658> = Align4::new(*include_bytes!("../dtb/issue-3.dtb"));
 static SIFIVE: Align4<3872> = Align4::new(*include_bytes!("../dtb/sifive.dtb"));
 
@@ -113,17 +112,8 @@ fn finds_root_node_properties() {
 
     // fallible
     let fdt = Fdt::new_fallible(TEST.as_slice()).unwrap();
-    let prop = fdt
-        .root()
-        .unwrap()
-        .find_node("/")
-        .unwrap()
-        .unwrap()
-        .properties()
-        .unwrap()
-        .find("compatible")
-        .unwrap()
-        .unwrap();
+    let prop =
+        fdt.root().unwrap().find_node("/").unwrap().unwrap().properties().unwrap().find("compatible").unwrap().unwrap();
 
     assert_eq!(prop.value(), b"riscv-virtio\0");
 }
@@ -144,10 +134,7 @@ fn finds_child_of_root_node() {
         "couldn't find interrupt-controller node"
     );
 
-    assert!(
-        root.find_node("/cpus/cpu@1/interrupt-controller").is_none(),
-        "couldn't find interrupt-controller node"
-    );
+    assert!(root.find_node("/cpus/cpu@1/interrupt-controller").is_none(), "couldn't find interrupt-controller node");
 }
 
 #[test]
@@ -167,8 +154,7 @@ fn properties() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let test = fdt.root().find_node("/soc/test").unwrap();
 
-    let props =
-        test.properties().into_iter().map(|p| (p.name(), p.value())).collect::<std::vec::Vec<_>>();
+    let props = test.properties().into_iter().map(|p| (p.name(), p.value())).collect::<std::vec::Vec<_>>();
 
     assert_eq!(
         props,

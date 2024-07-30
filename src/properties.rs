@@ -7,8 +7,8 @@ use core::ffi::CStr;
 use crate::{
     nodes::Node,
     parsing::{
-        aligned::AlignedParser, unaligned::UnalignedParser, BigEndianU32, NoPanic, Panic, Parser,
-        ParserWithMode, StringsBlock, StructsBlock,
+        aligned::AlignedParser, unaligned::UnalignedParser, BigEndianU32, NoPanic, Panic, Parser, ParserWithMode,
+        StringsBlock, StructsBlock,
     },
     standard_nodes::Root,
     FdtError,
@@ -93,13 +93,8 @@ impl<Int: Default> Default for BuildWrappingIntCollector<Int> {
     }
 }
 
-impl<
-        Int: Copy
-            + Default
-            + core::ops::Shl<u32, Output = Int>
-            + core::ops::BitOr<Int, Output = Int>
-            + From<u32>,
-    > BuildCellCollector for BuildWrappingIntCollector<Int>
+impl<Int: Copy + Default + core::ops::Shl<u32, Output = Int> + core::ops::BitOr<Int, Output = Int> + From<u32>>
+    BuildCellCollector for BuildWrappingIntCollector<Int>
 {
     type Output = Int;
 
@@ -230,13 +225,8 @@ impl<T: CellCollector> BuildCellCollector for BuildOptionalCellCollector<T> {
     }
 }
 
-impl<
-        Int: Copy
-            + Default
-            + core::ops::Shl<u32, Output = Int>
-            + core::ops::BitOr<Int, Output = Int>
-            + From<u32>,
-    > CellCollector for core::num::Wrapping<Int>
+impl<Int: Copy + Default + core::ops::Shl<u32, Output = Int> + core::ops::BitOr<Int, Output = Int> + From<u32>>
+    CellCollector for core::num::Wrapping<Int>
 {
     type Output = Int;
     type Builder = BuildWrappingIntCollector<Int>;
@@ -358,11 +348,7 @@ impl PciAddressHighBits {
 impl core::ops::BitAnd for PciAddress {
     type Output = Self;
     fn bitand(self, rhs: Self) -> Self::Output {
-        Self {
-            hi: PciAddressHighBits(self.hi.0 & rhs.hi.0),
-            mid: self.mid & rhs.mid,
-            lo: self.lo & rhs.lo,
-        }
+        Self { hi: PciAddressHighBits(self.hi.0 & rhs.hi.0), mid: self.mid & rhs.mid, lo: self.lo & rhs.lo }
     }
 }
 
@@ -722,8 +708,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for CellSizes {
         for property in node.properties()? {
             let property = property?;
 
-            let mut parser =
-                UnalignedParser::new(property.value(), StringsBlock(&[]), StructsBlock(&[]));
+            let mut parser = UnalignedParser::new(property.value(), StringsBlock(&[]), StructsBlock(&[]));
             match property.name() {
                 "#address-cells" => address_cells = Some(parser.advance_u32()?.to_ne() as usize),
                 "#size-cells" => size_cells = Some(parser.advance_u32()?.to_ne() as usize),
@@ -731,9 +716,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for CellSizes {
             }
         }
 
-        Ok(address_cells
-            .zip(size_cells)
-            .map(|(address_cells, size_cells)| CellSizes { address_cells, size_cells }))
+        Ok(address_cells.zip(size_cells).map(|(address_cells, size_cells)| CellSizes { address_cells, size_cells }))
     }
 }
 
@@ -834,9 +817,7 @@ impl<'a, CAddr: CellCollector, Len: CellCollector> Iterator for RegIter<'a, CAdd
             //
             // These unwraps can't panic because `chunks_exact` guarantees that
             // we'll always get slices of 4 bytes
-            if let Err(e) =
-                address_collector.push(u32::from_be_bytes(encoded_address.try_into().unwrap()))
-            {
+            if let Err(e) = address_collector.push(u32::from_be_bytes(encoded_address.try_into().unwrap())) {
                 return Some(Err(e));
             }
         }
@@ -847,17 +828,13 @@ impl<'a, CAddr: CellCollector, Len: CellCollector> Iterator for RegIter<'a, CAdd
             //
             // These unwraps can't panic because `chunks_exact` guarantees that
             // we'll always get slices of 4 bytes
-            if let Err(e) = len_collector.push(u32::from_be_bytes(encoded_len.try_into().unwrap()))
-            {
+            if let Err(e) = len_collector.push(u32::from_be_bytes(encoded_len.try_into().unwrap())) {
                 return Some(Err(e));
             }
         }
 
         self.encoded_array = self.encoded_array.get((address_bytes + size_bytes)..)?;
-        Some(Ok(RegEntry {
-            address: CAddr::map(address_collector.finish()),
-            len: Len::map(len_collector.finish()),
-        }))
+        Some(Ok(RegEntry { address: CAddr::map(address_collector.finish()), len: Len::map(len_collector.finish()) }))
     }
 }
 
@@ -946,12 +923,7 @@ impl<'a> Ranges<'a> {
     }
 }
 
-pub struct RangesIter<
-    'a,
-    CAddr: CellCollector = u64,
-    PAddr: CellCollector = u64,
-    Len: CellCollector = u64,
-> {
+pub struct RangesIter<'a, CAddr: CellCollector = u64, PAddr: CellCollector = u64, Len: CellCollector = u64> {
     parent_address_cells: AddressCells,
     cell_sizes: CellSizes,
     ranges: &'a [u8],
@@ -970,10 +942,9 @@ impl<'a, CAddr: CellCollector, PAddr: CellCollector, Len: CellCollector> Iterato
         let child_encoded_address = self.ranges.get(..child_address_bytes)?;
         let parent_encoded_address =
             self.ranges.get(child_address_bytes..child_address_bytes + parent_address_bytes)?;
-        let encoded_len = self.ranges.get(
-            child_address_bytes + parent_address_bytes
-                ..child_address_bytes + parent_address_bytes + len_bytes,
-        )?;
+        let encoded_len = self
+            .ranges
+            .get(child_address_bytes + parent_address_bytes..child_address_bytes + parent_address_bytes + len_bytes)?;
 
         let mut child_address_collector = <CAddr as CellCollector>::Builder::default();
         for encoded_address in child_encoded_address.chunks_exact(4) {
@@ -981,9 +952,7 @@ impl<'a, CAddr: CellCollector, PAddr: CellCollector, Len: CellCollector> Iterato
             //
             // These unwraps can't panic because `chunks_exact` guarantees that
             // we'll always get slices of 4 bytes
-            if let Err(e) = child_address_collector
-                .push(u32::from_be_bytes(encoded_address.try_into().unwrap()))
-            {
+            if let Err(e) = child_address_collector.push(u32::from_be_bytes(encoded_address.try_into().unwrap())) {
                 return Some(Err(e));
             }
         }
@@ -994,9 +963,7 @@ impl<'a, CAddr: CellCollector, PAddr: CellCollector, Len: CellCollector> Iterato
             //
             // These unwraps can't panic because `chunks_exact` guarantees that
             // we'll always get slices of 4 bytes
-            if let Err(e) = parent_address_collector
-                .push(u32::from_be_bytes(encoded_address.try_into().unwrap()))
-            {
+            if let Err(e) = parent_address_collector.push(u32::from_be_bytes(encoded_address.try_into().unwrap())) {
                 return Some(Err(e));
             }
         }
@@ -1007,8 +974,7 @@ impl<'a, CAddr: CellCollector, PAddr: CellCollector, Len: CellCollector> Iterato
             //
             // These unwraps can't panic because `chunks_exact` guarantees that
             // we'll always get slices of 4 bytes
-            if let Err(e) = len_collector.push(u32::from_be_bytes(encoded_len.try_into().unwrap()))
-            {
+            if let Err(e) = len_collector.push(u32::from_be_bytes(encoded_len.try_into().unwrap())) {
                 return Some(Err(e));
             }
         }
@@ -1110,11 +1076,10 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for LegacyInterrupts<'a, P> {
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupts")? {
             Some(interrupts) => {
-                let interrupt_parent =
-                    match InterruptParent::<(P::Parser, NoPanic)>::parse(node, root)? {
-                        Some(p) => p,
-                        None => return Err(FdtError::MissingRequiredProperty("interrupt-parent")),
-                    };
+                let interrupt_parent = match InterruptParent::<(P::Parser, NoPanic)>::parse(node, root)? {
+                    Some(p) => p,
+                    None => return Err(FdtError::MissingRequiredProperty("interrupt-parent")),
+                };
 
                 let Some(interrupt_cells) = interrupt_parent.property::<InterruptCells>()? else {
                     return Err(FdtError::MissingRequiredProperty("interrupt-cells"));
@@ -1159,9 +1124,7 @@ impl<'a, I: CellCollector> Iterator for LegacyInterruptsIter<'a, I> {
             //
             // These unwraps can't panic because `chunks_exact` guarantees that
             // we'll always get slices of 4 bytes
-            if let Err(e) =
-                specifier_collector.push(u32::from_be_bytes(encoded_specifier.try_into().unwrap()))
-            {
+            if let Err(e) = specifier_collector.push(u32::from_be_bytes(encoded_specifier.try_into().unwrap())) {
                 return Some(Err(e));
             }
         }
@@ -1205,10 +1168,9 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for ExtendedInterrupts<'a, P> {
         root: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupts-extended")? {
-            Some(interrupts) => Ok(Some(Self {
-                encoded_array: interrupts.value(),
-                root: Root { node: root.node.alt() },
-            })),
+            Some(interrupts) => {
+                Ok(Some(Self { encoded_array: interrupts.value(), root: Root { node: root.node.alt() } }))
+            }
 
             None => Ok(None),
         }
@@ -1225,9 +1187,10 @@ impl<'a, P: ParserWithMode<'a>> Iterator for ExtendedInterruptsIter<'a, P> {
 
     #[track_caller]
     fn next(&mut self) -> Option<Self::Item> {
-        let phandle = self.encoded_array.get(..4).map(|bytes| {
-            PHandle(BigEndianU32::from_be(u32::from_ne_bytes(bytes.try_into().unwrap())))
-        })?;
+        let phandle = self
+            .encoded_array
+            .get(..4)
+            .map(|bytes| PHandle(BigEndianU32::from_be(u32::from_ne_bytes(bytes.try_into().unwrap()))))?;
         self.encoded_array = self.encoded_array.get(4..)?;
 
         let res = crate::tryblock!({
@@ -1285,10 +1248,7 @@ impl<'a, P: ParserWithMode<'a>> ExtendedInterrupt<'a, P> {
     }
 
     pub fn interrupt_specifier(self) -> InterruptSpecifier<'a> {
-        InterruptSpecifier {
-            interrupt_cells: self.interrupt_cells,
-            encoded_array: self.encoded_array,
-        }
+        InterruptSpecifier { interrupt_cells: self.interrupt_cells, encoded_array: self.encoded_array }
     }
 }
 
@@ -1374,10 +1334,7 @@ impl<'a> Iterator for InterruptSpecifierIterPairs<'a> {
 
         // This panic can never fail since the slice length is guaranteed to be
         // 4 bytes long
-        Some((
-            u32::from_be_bytes(next[..4].try_into().unwrap()),
-            u32::from_be_bytes(next[4..8].try_into().unwrap()),
-        ))
+        Some((u32::from_be_bytes(next[..4].try_into().unwrap()), u32::from_be_bytes(next[4..8].try_into().unwrap())))
     }
 }
 
@@ -1466,14 +1423,10 @@ impl<AddrMask: CellCollector, IntMask: CellCollector> InterruptMapMask<AddrMask,
         interrupt_specifier: <IntMask as CellCollector>::Output,
     ) -> (<AddrMask as CellCollector>::Output, <IntMask as CellCollector>::Output)
     where
-        <AddrMask as CellCollector>::Output: core::ops::BitAnd<
-            <AddrMask as CellCollector>::Output,
-            Output = <AddrMask as CellCollector>::Output,
-        >,
-        <IntMask as CellCollector>::Output: core::ops::BitAnd<
-            <IntMask as CellCollector>::Output,
-            Output = <IntMask as CellCollector>::Output,
-        >,
+        <AddrMask as CellCollector>::Output:
+            core::ops::BitAnd<<AddrMask as CellCollector>::Output, Output = <AddrMask as CellCollector>::Output>,
+        <IntMask as CellCollector>::Output:
+            core::ops::BitAnd<<IntMask as CellCollector>::Output, Output = <IntMask as CellCollector>::Output>,
     {
         (self.address_mask & address, self.interrupt_specifier_mask & interrupt_specifier)
     }
@@ -1486,12 +1439,10 @@ impl<'a, AddrMask: CellCollector, IntMask: CellCollector, P: ParserWithMode<'a>>
         node: Node<'a, (P::Parser, NoPanic)>,
         _: Root<'a, (P::Parser, NoPanic)>,
     ) -> Result<Option<Self>, FdtError> {
-        let address_cells = node
-            .property::<AddressCells>()?
-            .ok_or(FdtError::MissingRequiredProperty("#address-cells"))?;
-        let interrupt_cells = node
-            .property::<InterruptCells>()?
-            .ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
+        let address_cells =
+            node.property::<AddressCells>()?.ok_or(FdtError::MissingRequiredProperty("#address-cells"))?;
+        let interrupt_cells =
+            node.property::<InterruptCells>()?.ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
         match node.properties()?.find("interrupt-map-mask")? {
             Some(prop) => {
                 if prop.value().len() % 4 != 0 {
@@ -1601,8 +1552,7 @@ impl<
                 .find(|e| match e {
                     Err(_) => true,
                     Ok(entry) => {
-                        entry.child_unit_address == address
-                            && entry.child_interrupt_specifier == interrupt_specifier
+                        entry.child_unit_address == address && entry.child_interrupt_specifier == interrupt_specifier
                     }
                 })
                 .transpose()
@@ -1634,12 +1584,10 @@ impl<
     ) -> Result<Option<Self>, FdtError> {
         let Some(encoded_map) = node.properties()?.find("interrupt-map")? else { return Ok(None) };
 
-        let address_cells = node
-            .property::<AddressCells>()?
-            .ok_or(FdtError::MissingRequiredProperty("#address-cells"))?;
-        let interrupt_cells = node
-            .property::<InterruptCells>()?
-            .ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
+        let address_cells =
+            node.property::<AddressCells>()?.ok_or(FdtError::MissingRequiredProperty("#address-cells"))?;
+        let interrupt_cells =
+            node.property::<InterruptCells>()?.ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
 
         Ok(Some(InterruptMap {
             address_cells,
@@ -1683,18 +1631,13 @@ impl<
             let child_addr_size = self.address_cells.0 * 4;
             let child_intsp_size = self.interrupt_cells.0 * 4;
 
-            let Some(child_address_iter) = self.encoded_map.get(..child_addr_size) else {
+            let Some((child_address_iter, rest)) = self.encoded_map.split_at_checked(child_addr_size) else {
                 return Ok(None);
             };
-            let Some(child_specifier_iter) =
-                self.encoded_map.get(child_addr_size..child_addr_size + child_intsp_size)
-            else {
+            let Some((child_specifier_iter, rest)) = rest.split_at_checked(child_intsp_size) else {
                 return Ok(None);
             };
-            let Some(interrupt_parent) = self
-                .encoded_map
-                .get(child_addr_size + child_intsp_size..child_addr_size + child_intsp_size + 4)
-            else {
+            let Some((interrupt_parent, rest)) = rest.split_at_checked(4) else {
                 return Ok(None);
             };
 
@@ -1706,33 +1649,22 @@ impl<
 
             let parent_address_cells = interrupt_parent
                 .property::<AddressCells>()?
-                .ok_or(FdtError::MissingRequiredProperty("#address-cells/#size-cells"))?;
+                .ok_or(FdtError::MissingRequiredProperty("#address-cells"))?;
             let parent_interrupt_cells = interrupt_parent
                 .property::<InterruptCells>()?
                 .ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
 
             let parent_addr_size = parent_address_cells.0 * 4;
             let parent_intsp_size = parent_interrupt_cells.0 * 4;
-            let Some(parent_address_iter) = self.encoded_map.get(
-                child_addr_size + child_intsp_size + 4
-                    ..child_addr_size + child_intsp_size + 4 + parent_addr_size,
-            ) else {
+
+            let Some((parent_address_iter, rest)) = rest.split_at_checked(parent_addr_size) else {
                 return Ok(None);
             };
 
-            let Some(mut parent_specifier_iter) =
-                self.encoded_map.get(child_addr_size + child_intsp_size + 4 + parent_addr_size..)
-            else {
+            let Some((parent_specifier_iter, rest)) = rest.split_at_checked(parent_intsp_size) else {
                 return Ok(None);
             };
-            self.encoded_map = match parent_specifier_iter.get(parent_intsp_size..) {
-                Some(s) => s,
-                None => return Ok(None),
-            };
-            parent_specifier_iter = match parent_specifier_iter.get(..parent_intsp_size) {
-                Some(s) => s,
-                None => return Ok(None),
-            };
+            self.encoded_map = rest;
 
             let mut child_address_collector = CAddr::Builder::default();
             for chunk in child_address_iter.chunks_exact(4) {
@@ -1901,9 +1833,7 @@ impl<'a> PropertyValue<'a> for &'a CStr {
 impl<'a> PropertyValue<'a> for &'a str {
     #[inline]
     fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
-        core::str::from_utf8(value)
-            .map(|s| s.trim_end_matches('\0'))
-            .map_err(|_| InvalidPropertyValue)
+        core::str::from_utf8(value).map(|s| s.trim_end_matches('\0')).map_err(|_| InvalidPropertyValue)
     }
 }
 
@@ -1966,17 +1896,12 @@ mod tests {
     fn reg_raw_iter() {
         let mut iter = RegRawIter {
             cell_sizes: CellSizes { address_cells: 2, size_cells: 1 },
-            encoded_array: &[
-                0x55, 0x44, 0x33, 0x22, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
-            ],
+            encoded_array: &[0x55, 0x44, 0x33, 0x22, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD],
         };
 
         assert_eq!(
             iter.next().unwrap(),
-            RawRegEntry {
-                address: &[0x55, 0x44, 0x33, 0x22, 0x66, 0x77, 0x88, 0x99],
-                len: &[0xAA, 0xBB, 0xCC, 0xDD]
-            }
+            RawRegEntry { address: &[0x55, 0x44, 0x33, 0x22, 0x66, 0x77, 0x88, 0x99], len: &[0xAA, 0xBB, 0xCC, 0xDD] }
         );
     }
 
@@ -1984,15 +1909,10 @@ mod tests {
     fn reg_u64_iter() {
         let mut iter = RegIter::<u64, usize> {
             cell_sizes: CellSizes { address_cells: 2, size_cells: 1 },
-            encoded_array: &[
-                0x55, 0x44, 0x33, 0x22, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
-            ],
+            encoded_array: &[0x55, 0x44, 0x33, 0x22, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD],
             _collector: core::marker::PhantomData,
         };
 
-        assert_eq!(
-            iter.next().unwrap().unwrap(),
-            RegEntry { address: 0x5544332266778899, len: 0xAABBCCDD }
-        );
+        assert_eq!(iter.next().unwrap().unwrap(), RegEntry { address: 0x5544332266778899, len: 0xAABBCCDD });
     }
 }

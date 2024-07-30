@@ -36,12 +36,7 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
 
     fn byte_data(&self) -> &'a [u8] {
         // SAFETY: it is always valid to cast a `u32` to 4 `u8`s
-        unsafe {
-            core::slice::from_raw_parts(
-                self.stream.0.as_ptr().cast::<u8>(),
-                self.stream.0.len() * 4,
-            )
-        }
+        unsafe { core::slice::from_raw_parts(self.stream.0.as_ptr().cast::<u8>(), self.stream.0.len() * 4) }
     }
 
     fn strings(&self) -> super::StringsBlock<'a> {
@@ -54,9 +49,7 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
 
     fn advance_token(&mut self) -> Result<BigEndianToken, FdtError> {
         loop {
-            match BigEndianToken(
-                self.stream.advance().map(BigEndianU32).ok_or(ParseError::UnexpectedEndOfData)?,
-            ) {
+            match BigEndianToken(self.stream.advance().map(BigEndianU32).ok_or(ParseError::UnexpectedEndOfData)?) {
                 BigEndianToken::NOP => continue,
                 token @ BigEndianToken::BEGIN_NODE
                 | token @ BigEndianToken::END_NODE
@@ -68,22 +61,14 @@ impl<'a> Parser<'a> for AlignedParser<'a> {
     }
 
     fn advance_u32(&mut self) -> Result<BigEndianU32, FdtError> {
-        self.stream
-            .advance()
-            .map(BigEndianU32)
-            .ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))
+        self.stream.advance().map(BigEndianU32).ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))
     }
 
     fn advance_cstr(&mut self) -> Result<&'a core::ffi::CStr, FdtError> {
         // SAFETY: It is safe to reinterpret the stream data to a smaller integer size
-        let bytes = unsafe {
-            core::slice::from_raw_parts(
-                self.stream.0.as_ptr().cast::<u8>(),
-                self.stream.0.len() * 4,
-            )
-        };
-        let cstr = core::ffi::CStr::from_bytes_until_nul(bytes)
-            .map_err(|_| ParseError::InvalidCStrValue)?;
+        let bytes =
+            unsafe { core::slice::from_raw_parts(self.stream.0.as_ptr().cast::<u8>(), self.stream.0.len() * 4) };
+        let cstr = core::ffi::CStr::from_bytes_until_nul(bytes).map_err(|_| ParseError::InvalidCStrValue)?;
 
         // Round up to the next multiple of 4, if necessary
         let skip = ((cstr.to_bytes_with_nul().len() + 3) & !3) / 4;

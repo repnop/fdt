@@ -91,10 +91,9 @@ impl core::fmt::Display for ParseError {
             Self::InvalidTokenValue => {
                 write!(f, "encountered invalid FDT token value while parsing")
             }
-            Self::NumericConversionError => write!(
-                f,
-                "u32 value too large for usize (this should only occur on 16-bit platforms)"
-            ),
+            Self::NumericConversionError => {
+                write!(f, "u32 value too large for usize (this should only occur on 16-bit platforms)")
+            }
             Self::UnexpectedEndOfData => {
                 write!(f, "encountered end of data while parsing but expected more")
             }
@@ -141,9 +140,7 @@ pub trait ParserWithMode<'a>: Parser<'a> + PanicMode + crate::sealed::Sealed {
     type Parser: Parser<'a, Granularity = Self::Granularity>;
     type Mode: PanicMode + Clone + Default;
 
-    fn into_parts(
-        self,
-    ) -> (<Self as ParserWithMode<'a>>::Parser, <Self as ParserWithMode<'a>>::Mode);
+    fn into_parts(self) -> (<Self as ParserWithMode<'a>>::Parser, <Self as ParserWithMode<'a>>::Mode);
 }
 
 impl<'a, T: Parser<'a>, U: PanicMode> crate::sealed::Sealed for (T, U) {}
@@ -205,9 +202,7 @@ impl<'a, T: Parser<'a>, U: PanicMode + Clone + Default + 'static> ParserWithMode
     type Mode = U;
     type Parser = T;
 
-    fn into_parts(
-        self,
-    ) -> (<Self as ParserWithMode<'a>>::Parser, <Self as ParserWithMode<'a>>::Mode) {
+    fn into_parts(self) -> (<Self as ParserWithMode<'a>>::Parser, <Self as ParserWithMode<'a>>::Mode) {
         self
     }
 }
@@ -279,12 +274,10 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
             1 => {
                 let byte_data = self.byte_data();
                 match byte_data.get(byte_data.len() - 4..).map(<[u8; 4]>::try_from) {
-                    Some(Ok(data @ [_, _, _, _])) => {
-                        match BigEndianToken(BigEndianU32(u32::from_ne_bytes(data))) {
-                            BigEndianToken::END => {}
-                            _ => return Err(FdtError::ParseError(ParseError::UnexpectedToken)),
-                        }
-                    }
+                    Some(Ok(data @ [_, _, _, _])) => match BigEndianToken(BigEndianU32(u32::from_ne_bytes(data))) {
+                        BigEndianToken::END => {}
+                        _ => return Err(FdtError::ParseError(ParseError::UnexpectedToken)),
+                    },
                     _ => return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)),
                 }
 
@@ -299,12 +292,10 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
             4 => {
                 let byte_data = self.byte_data();
                 match byte_data.get(byte_data.len() - 4..).map(<[u8; 4]>::try_from) {
-                    Some(Ok(data @ [_, _, _, _])) => {
-                        match BigEndianToken(BigEndianU32(u32::from_ne_bytes(data))) {
-                            BigEndianToken::END => {}
-                            _ => return Err(FdtError::ParseError(ParseError::UnexpectedToken)),
-                        }
-                    }
+                    Some(Ok(data @ [_, _, _, _])) => match BigEndianToken(BigEndianU32(u32::from_ne_bytes(data))) {
+                        BigEndianToken::END => {}
+                        _ => return Err(FdtError::ParseError(ParseError::UnexpectedToken)),
+                    },
                     _ => return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)),
                 }
 
@@ -320,10 +311,7 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
         }
     }
 
-    fn parse_node(
-        &mut self,
-        parent: Option<&'a RawNode<Self::Granularity>>,
-    ) -> Result<Node<'a, Self>, FdtError>
+    fn parse_node(&mut self, parent: Option<&'a RawNode<Self::Granularity>>) -> Result<Node<'a, Self>, FdtError>
     where
         Self: ParserWithMode<'a>,
     {
@@ -370,9 +358,7 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
         match self.advance_token()? {
             BigEndianToken::END_NODE => Ok(Node {
                 this: RawNode::new(
-                    starting_data
-                        .get(..starting_len - ending_len)
-                        .ok_or(ParseError::UnexpectedEndOfData)?,
+                    starting_data.get(..starting_len - ending_len).ok_or(ParseError::UnexpectedEndOfData)?,
                 ),
                 parent,
                 strings: self.strings(),
@@ -387,10 +373,10 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
         match self.advance_token()? {
             BigEndianToken::PROP => {
                 // Properties are in the format: <data len> <name offset> <data...>
-                let len = usize::try_from(self.advance_u32()?.to_ne())
-                    .map_err(|_| ParseError::NumericConversionError)?;
-                let name_offset = usize::try_from(self.advance_u32()?.to_ne())
-                    .map_err(|_| ParseError::NumericConversionError)?;
+                let len =
+                    usize::try_from(self.advance_u32()?.to_ne()).map_err(|_| ParseError::NumericConversionError)?;
+                let name_offset =
+                    usize::try_from(self.advance_u32()?.to_ne()).map_err(|_| ParseError::NumericConversionError)?;
                 let data = self.byte_data().get(..len).ok_or(ParseError::UnexpectedEndOfData)?;
 
                 self.advance_aligned(data.len());
@@ -408,12 +394,10 @@ pub struct StringsBlock<'a>(pub(crate) &'a [u8]);
 
 impl<'a> StringsBlock<'a> {
     pub fn offset_at(self, offset: usize) -> Result<&'a str, FdtError> {
-        core::ffi::CStr::from_bytes_until_nul(
-            self.0.get(offset..).ok_or(ParseError::UnexpectedEndOfData)?,
-        )
-        .map_err(|_| ParseError::InvalidCStrValue)?
-        .to_str()
-        .map_err(|_| ParseError::InvalidCStrValue.into())
+        core::ffi::CStr::from_bytes_until_nul(self.0.get(offset..).ok_or(ParseError::UnexpectedEndOfData)?)
+            .map_err(|_| ParseError::InvalidCStrValue)?
+            .to_str()
+            .map_err(|_| ParseError::InvalidCStrValue.into())
     }
 }
 
