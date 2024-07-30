@@ -72,8 +72,7 @@ impl<'a> Parser<'a> for UnalignedParser<'a> {
     }
 
     fn advance_cstr(&mut self) -> Result<&'a core::ffi::CStr, FdtError> {
-        let cstr = core::ffi::CStr::from_bytes_until_nul(self.stream.0)
-            .map_err(|_| ParseError::InvalidCStrValue)?;
+        let cstr = core::ffi::CStr::from_bytes_until_nul(self.stream.0).map_err(|_| ParseError::InvalidCStrValue)?;
 
         // Round up to the next multiple of 4, if necessary
         let skip = (cstr.to_bytes_with_nul().len() + 3) & !3;

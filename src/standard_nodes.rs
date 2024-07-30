@@ -4,12 +4,9 @@
 
 use crate::{
     nodes::{FallibleNode, IntoSearchableNodeName, Node, RawNode, SearchableNodeName},
-    parsing::{
-        aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode,
-    },
+    parsing::{aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode},
     properties::{
-        AddressCells, BuildCellCollector, CellCollector, CellSizes, CollectCellsError, Compatible,
-        PHandle, Property,
+        AddressCells, BuildCellCollector, CellCollector, CellSizes, CollectCellsError, Compatible, PHandle, Property,
     },
     tryblock, FdtError,
 };
@@ -54,9 +51,8 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
                     Ok(property) => match property.name() == "stdout-path" {
                         false => None,
                         true => Some(property.as_value::<&'a str>().map_err(Into::into).map(|s| {
-                            let (path, params) = s
-                                .split_once(':')
-                                .map_or_else(|| (s, None), |(name, params)| (name, Some(params)));
+                            let (path, params) =
+                                s.split_once(':').map_or_else(|| (s, None), |(name, params)| (name, Some(params)));
                             StdInOutPath { path, params }
                         })),
                     },
@@ -81,9 +77,8 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
                     Ok(property) => match property.name() == "stdin-path" {
                         false => None,
                         true => Some(property.as_value::<&str>().map_err(Into::into).map(|s| {
-                            let (path, params) = s
-                                .split_once(':')
-                                .map_or_else(|| (s, None), |(name, params)| (name, Some(params)));
+                            let (path, params) =
+                                s.split_once(':').map_or_else(|| (s, None), |(name, params)| (name, Some(params)));
                             StdInOutPath { path, params }
                         })),
                     },
@@ -177,9 +172,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
         P::to_output(crate::tryblock!({
             let node = self.node.fallible();
             node.properties()?.find("model").and_then(|p| {
-                p.ok_or(FdtError::MissingRequiredProperty("model"))?
-                    .as_value::<&'a str>()
-                    .map_err(Into::into)
+                p.ok_or(FdtError::MissingRequiredProperty("model"))?.as_value::<&'a str>().map_err(Into::into)
             })
         }))
     }
@@ -261,10 +254,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
 
     /// Returns an iterator that yields every node with the name that matches
     /// `name` in depth-first order
-    pub fn find_all_nodes_with_name<'b>(
-        self,
-        name: &'b str,
-    ) -> P::Output<AllNodesWithNameIter<'a, 'b, P>> {
+    pub fn find_all_nodes_with_name<'b>(self, name: &'b str) -> P::Output<AllNodesWithNameIter<'a, 'b, P>> {
         P::to_output(crate::tryblock!({
             let this = Root { node: self.node.fallible() };
             Ok(AllNodesWithNameIter { iter: this.all_nodes()?, name })
@@ -340,13 +330,12 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     pub fn all_compatible<'b>(self, with: &'b [&str]) -> P::Output<AllCompatibleIter<'a, 'b, P>> {
         P::to_output(crate::tryblock!({
             let this = Root { node: self.node.fallible() };
-            let f: fn(_) -> _ =
-                |node: Result<(usize, Node<'a, (P::Parser, NoPanic)>), FdtError>| match node
-                    .and_then(|(_, n)| Ok((n, n.property::<Compatible>()?)))
-                {
-                    Ok((n, compatible)) => Some(Ok((n, compatible?))),
-                    Err(e) => Some(Err(e)),
-                };
+            let f: fn(_) -> _ = |node: Result<(usize, FallibleNode<'a, P>), FdtError>| match node
+                .and_then(|(_, n)| Ok((n, n.property::<Compatible>()?)))
+            {
+                Ok((n, compatible)) => Some(Ok((n, compatible?))),
+                Err(e) => Some(Err(e)),
+            };
 
             let iter = this.all_nodes()?.filter_map(f);
 
@@ -421,7 +410,7 @@ impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllNodesWithNameIter<'a, 'b, P>
 
     #[track_caller]
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(next) = self.iter.next() {
+        for next in self.iter.by_ref() {
             match next.and_then(|(_, n)| Ok((n, n.name()?))) {
                 Ok((node, name)) => match name.name == self.name {
                     true => return Some(P::to_output(Ok(node.alt()))),
@@ -440,8 +429,8 @@ pub struct AllCompatibleIter<'a, 'b, P: ParserWithMode<'a>> {
     iter: core::iter::FilterMap<
         AllNodesIter<'a, (P::Parser, NoPanic)>,
         fn(
-            Result<(usize, Node<'a, (P::Parser, NoPanic)>), FdtError>,
-        ) -> Option<Result<(Node<'a, (P::Parser, NoPanic)>, Compatible<'a>), FdtError>>,
+            Result<(usize, FallibleNode<'a, P>), FdtError>,
+        ) -> Option<Result<(FallibleNode<'a, P>, Compatible<'a>), FdtError>>,
     >,
     with: &'b [&'b str],
 }
@@ -453,12 +442,10 @@ impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllCompatibleIter<'a, 'b, P> {
     fn next(&mut self) -> Option<Self::Item> {
         for next in self.iter.by_ref() {
             match next {
-                Ok((node, compatible)) => {
-                    match self.with.iter().copied().any(|c| compatible.compatible_with(c)) {
-                        true => return Some(P::to_output(Ok(node.alt()))),
-                        false => continue,
-                    }
-                }
+                Ok((node, compatible)) => match self.with.iter().copied().any(|c| compatible.compatible_with(c)) {
+                    true => return Some(P::to_output(Ok(node.alt()))),
+                    false => continue,
+                },
                 Err(e) => return Some(P::to_output(Err(e))),
             }
         }
@@ -485,11 +472,8 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIter<'a, P> {
 
         match self.parser.advance_token() {
             Ok(BigEndianToken::BEGIN_NODE) => self.parent_index += 1,
-            Ok(BigEndianToken::END)
-            | Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => return None,
-            Ok(_) => {
-                return Some(P::to_output(Err(FdtError::ParseError(ParseError::UnexpectedToken))))
-            }
+            Ok(BigEndianToken::END) | Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => return None,
+            Ok(_) => return Some(P::to_output(Err(FdtError::ParseError(ParseError::UnexpectedToken)))),
             Err(e) => return Some(P::to_output(Err(e))),
         }
 
@@ -505,10 +489,7 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIter<'a, P> {
             self.parent_index,
             Node {
                 this: RawNode::new(starting_data),
-                parent: self
-                    .parents
-                    .get(self.parent_index.saturating_sub(1))
-                    .map(|parent| RawNode::new(parent)),
+                parent: self.parents.get(self.parent_index.saturating_sub(1)).map(|parent| RawNode::new(parent)),
                 strings: self.parser.strings(),
                 structs: self.parser.structs(),
                 _mode: core::marker::PhantomData,
@@ -543,19 +524,14 @@ impl<'a, P: ParserWithMode<'a>> Aliases<'a, P> {
     /// Attempt to resolve an alias to a node name
     pub fn resolve_name(self, alias: &str) -> P::Output<Option<&'a str>> {
         P::to_output(crate::tryblock!({
-            self.node
-                .properties()?
-                .find(alias)?
-                .map(|p| p.as_value().map_err(Into::into))
-                .transpose()
+            self.node.properties()?.find(alias)?.map(|p| p.as_value().map_err(Into::into)).transpose()
         }))
     }
 
     /// Attempt to find the node specified by the given alias
     pub fn resolve(self, alias: &str) -> P::Output<Option<Node<'a, P>>> {
         P::to_output(crate::tryblock!({
-            let Some(path) = Aliases::<(_, NoPanic)> { node: self.node }.resolve_name(alias)?
-            else {
+            let Some(path) = Aliases::<(_, NoPanic)> { node: self.node }.resolve_name(alias)? else {
                 return Ok(None);
             };
 
@@ -608,16 +584,11 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
                 return Err(FdtError::InvalidPropertyValue);
             }
 
-            let Some(address_cells) = self.node.parent().unwrap().property::<AddressCells>()?
-            else {
+            let Some(address_cells) = self.node.parent().unwrap().property::<AddressCells>()? else {
                 return Err(FdtError::MissingRequiredProperty("#address-cells"));
             };
 
-            Ok(CpuIds {
-                reg: reg.value(),
-                address_cells: address_cells.0,
-                _collector: core::marker::PhantomData,
-            })
+            Ok(CpuIds { reg: reg.value(), address_cells: address_cells.0, _collector: core::marker::PhantomData })
         }))
     }
 
@@ -711,11 +682,7 @@ impl<'a, C: CellCollector> CpuIds<'a, C> {
     }
 
     pub fn iter(&self) -> CpuIdsIter<'a, C> {
-        CpuIdsIter {
-            reg: self.reg,
-            address_cells: self.address_cells,
-            _collector: core::marker::PhantomData,
-        }
+        CpuIdsIter { reg: self.reg, address_cells: self.address_cells, _collector: core::marker::PhantomData }
     }
 }
 
@@ -744,11 +711,7 @@ pub struct CpuIdsIter<'a, C: CellCollector> {
 
 impl<C: CellCollector> Clone for CpuIdsIter<'_, C> {
     fn clone(&self) -> Self {
-        Self {
-            address_cells: self.address_cells,
-            reg: self.reg,
-            _collector: core::marker::PhantomData,
-        }
+        Self { address_cells: self.address_cells, reg: self.reg, _collector: core::marker::PhantomData }
     }
 }
 

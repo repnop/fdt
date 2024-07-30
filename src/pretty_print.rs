@@ -83,11 +83,7 @@ pub fn print_fdt<'a, P: Parser<'a>>(
                 f,
                 "{:width$}{} {{",
                 ' ',
-                if node.name()?.name.is_empty() {
-                    NodeName { name: "/", unit_address: None }
-                } else {
-                    node.name()?
-                },
+                if node.name()?.name.is_empty() { NodeName { name: "/", unit_address: None } } else { node.name()? },
                 width = depth * 4,
             )?;
 
@@ -152,36 +148,17 @@ fn print_properties<'a, P: Parser<'a>>(
                 }
                 writeln!(f, ">;")?;
             }
-            "compatible" => writeln!(
-                f,
-                "{:width$}compatible = {:?};",
-                ' ',
-                prop.as_value::<&str>()?,
-                width = depth * 4 + 4
-            )?,
+            "compatible" => {
+                writeln!(f, "{:width$}compatible = {:?};", ' ', prop.as_value::<&str>()?, width = depth * 4 + 4)?
+            }
             name if name.contains("-cells") => {
-                writeln!(
-                    f,
-                    "{:width$}{} = <{:#04x}>;",
-                    ' ',
-                    name,
-                    prop.as_value::<u32>()?,
-                    width = depth * 4 + 4
-                )?;
+                writeln!(f, "{:width$}{} = <{:#04x}>;", ' ', name, prop.as_value::<u32>()?, width = depth * 4 + 4)?;
             }
             _ => match prop.as_value::<&str>() {
                 Ok(value)
-                    if (!value.is_empty() && value.chars().all(|c| c.is_ascii_graphic()))
-                        || prop.value() == [0] =>
+                    if (!value.is_empty() && value.chars().all(|c| c.is_ascii_graphic())) || prop.value() == [0] =>
                 {
-                    writeln!(
-                        f,
-                        "{:width$}{} = {:?};",
-                        ' ',
-                        prop.name(),
-                        value,
-                        width = depth * 4 + 4
-                    )?
+                    writeln!(f, "{:width$}{} = {:?};", ' ', prop.name(), value, width = depth * 4 + 4)?
                 }
                 _ => match prop.value().len() {
                     0 => writeln!(f, "{:width$}{};", ' ', prop.name(), width = depth * 4 + 4)?,

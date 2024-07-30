@@ -65,8 +65,8 @@ pub mod standard_nodes;
 mod util;
 
 use parsing::{
-    aligned::AlignedParser, unaligned::UnalignedParser, NoPanic, Panic, ParseError, Parser,
-    ParserWithMode, StringsBlock, StructsBlock,
+    aligned::AlignedParser, unaligned::UnalignedParser, NoPanic, Panic, ParseError, Parser, ParserWithMode,
+    StringsBlock, StructsBlock,
 };
 use standard_nodes::Root;
 // use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
@@ -106,10 +106,9 @@ impl core::fmt::Display for FdtError {
             FdtError::BadPtr => write!(f, "an invalid pointer was passed"),
             FdtError::SliceTooSmall => write!(f, "provided slice is too small"),
             FdtError::ParseError(e) => core::fmt::Display::fmt(e, f),
-            FdtError::PHandleNotFound(value) => write!(
-                f,
-                "a node containing the `phandle` property value of `{value}` was not found"
-            ),
+            FdtError::PHandleNotFound(value) => {
+                write!(f, "a node containing the `phandle` property value of `{value}` was not found")
+            }
             FdtError::MissingRequiredNode(name) => {
                 write!(f, "FDT is missing a required node `{}`", name)
             }
@@ -117,7 +116,9 @@ impl core::fmt::Display for FdtError {
                 write!(f, "FDT node is missing a required property `{}`", name)
             }
             FdtError::InvalidPropertyValue => write!(f, "FDT property value is invalid"),
-            FdtError::CollectCellsError => write!(f, "overflow occurred while collecting `#<specifier>-cells` size values into the desired type")
+            FdtError::CollectCellsError => {
+                write!(f, "overflow occurred while collecting `#<specifier>-cells` size values into the desired type")
+            }
         }
     }
 }
@@ -196,10 +197,8 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
             return Err(FdtError::SliceTooSmall);
         }
 
-        let strings =
-            StringsBlock(&data[header.strings_offset as usize..][..header.strings_size as usize]);
-        let structs =
-            StructsBlock(&data[header.structs_offset as usize..][..header.structs_size as usize]);
+        let strings = StringsBlock(&data[header.strings_offset as usize..][..header.strings_size as usize]);
+        let structs = StructsBlock(&data[header.structs_offset as usize..][..header.structs_size as usize]);
 
         if !header.valid_magic() {
             return Err(FdtError::BadMagic);
@@ -220,9 +219,7 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
 
         let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
         let real_size = usize::try_from(
-            UnalignedParser::new(tmp_header, StringsBlock(&[]), StructsBlock(&[]))
-                .parse_header()?
-                .total_size,
+            UnalignedParser::new(tmp_header, StringsBlock(&[]), StructsBlock(&[])).parse_header()?.total_size,
         )
         .map_err(|_| ParseError::NumericConversionError)?;
 
@@ -253,8 +250,7 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
         let structs_start = header.structs_offset as usize / 4;
         let structs_end = structs_start + (header.structs_size as usize / 4);
         let structs = StructsBlock(
-            data.get(structs_start..structs_end)
-                .ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))?,
+            data.get(structs_start..structs_end).ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))?,
         );
 
         if !header.valid_magic() {
@@ -276,9 +272,7 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
 
         let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
         let real_size = usize::try_from(
-            AlignedParser::new(tmp_header, StringsBlock(&[]), StructsBlock(&[]))
-                .parse_header()?
-                .total_size,
+            AlignedParser::new(tmp_header, StringsBlock(&[]), StructsBlock(&[])).parse_header()?.total_size,
         )
         .map_err(|_| ParseError::NumericConversionError)?;
 
