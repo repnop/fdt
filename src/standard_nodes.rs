@@ -3,10 +3,12 @@
 // obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::{
+    cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
     nodes::{FallibleNode, IntoSearchableNodeName, Node, RawNode, SearchableNodeName},
     parsing::{aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode},
     properties::{
-        AddressCells, BuildCellCollector, CellCollector, CellSizes, CollectCellsError, Compatible, PHandle, Property,
+        cells::{AddressCells, CellSizes},
+        Compatible, PHandle, Property,
     },
     tryblock, FdtError,
 };
@@ -424,7 +426,7 @@ impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllNodesWithNameIter<'a, 'b, P>
     }
 }
 
-/// Iterator created by [`Root::all_compatible`]
+/// See [`Root::all_compatible`]
 pub struct AllCompatibleIter<'a, 'b, P: ParserWithMode<'a>> {
     iter: core::iter::FilterMap<
         AllNodesIter<'a, (P::Parser, NoPanic)>,

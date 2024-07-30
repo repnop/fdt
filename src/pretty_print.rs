@@ -3,9 +3,10 @@
 // obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::{
+    cell_collector::CollectCellsError,
     nodes::{Node, NodeName},
     parsing::{NoPanic, Parser},
-    properties::{CollectCellsError, InvalidPropertyValue, U32List},
+    properties::values::{InvalidPropertyValue, U32List},
     standard_nodes::Root,
     FdtError,
 };

@@ -57,6 +57,7 @@ extern crate std;
 #[cfg(test)]
 mod tests;
 
+pub mod cell_collector;
 mod nodes;
 mod parsing;
 mod pretty_print;
@@ -191,9 +192,9 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
         let mut parser = UnalignedParser::new(data, StringsBlock(&[]), StructsBlock(&[]));
         let header = parser.parse_header()?;
 
-        if data.len() < (header.strings_offset + header.strings_size) as usize {
-            return Err(FdtError::SliceTooSmall);
-        } else if data.len() < (header.structs_offset + header.structs_size) as usize {
+        let strings_end = (header.strings_offset + header.strings_size) as usize;
+        let structs_end = (header.structs_offset + header.structs_size) as usize;
+        if data.len() < strings_end || data.len() < structs_end {
             return Err(FdtError::SliceTooSmall);
         }
 
@@ -233,9 +234,9 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
         let mut parser = AlignedParser::new(data, StringsBlock(&[]), StructsBlock(&[]));
         let header = parser.parse_header()?;
 
-        if data.len() < (header.strings_offset + header.strings_size) as usize / 4 {
-            return Err(FdtError::SliceTooSmall);
-        } else if data.len() < (header.structs_offset + header.structs_size) as usize / 4 {
+        let strings_end = (header.strings_offset + header.strings_size) as usize / 4;
+        let structs_end = (header.structs_offset + header.structs_size) as usize / 4;
+        if data.len() < strings_end || data.len() < structs_end {
             return Err(FdtError::SliceTooSmall);
         }
 

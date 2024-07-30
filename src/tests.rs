@@ -5,7 +5,13 @@
 extern crate std;
 
 use nodes::NodeName;
-use properties::{CellSizes, InterruptMap, PciAddress, PciAddressHighBits};
+use properties::{
+    cells::CellSizes,
+    interrupts::{
+        pci::{PciAddress, PciAddressHighBits},
+        InterruptMap,
+    },
+};
 
 // use crate::{node::RawReg, *};
 use crate::*;
