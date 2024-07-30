@@ -3,7 +3,11 @@ use crate::{
         aligned::AlignedParser, BigEndianToken, NoPanic, Panic, PanicMode, ParseError, Parser, ParserWithMode,
         StringsBlock, StructsBlock,
     },
-    properties::{InvalidPropertyValue, Property, PropertyValue, Reg},
+    properties::{
+        reg::Reg,
+        values::{InvalidPropertyValue, PropertyValue},
+        Property,
+    },
     standard_nodes::Root,
     FdtError,
 };
@@ -69,7 +73,7 @@ impl core::fmt::Display for NodeName<'_> {
     }
 }
 
-pub type FallibleNode<'a, P: ParserWithMode<'a>> = Node<'a, (P::Parser, NoPanic)>;
+pub type FallibleNode<'a, P> = Node<'a, (<P as ParserWithMode<'a>>::Parser, NoPanic)>;
 
 pub struct Node<'a, P: ParserWithMode<'a>> {
     pub(crate) this: &'a RawNode<<P as Parser<'a>>::Granularity>,
