@@ -8,6 +8,7 @@ use crate::{
     parsing::{aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode},
     properties::{
         cells::{AddressCells, CellSizes},
+        values::StringList,
         Compatible, PHandle, Property,
     },
     tryblock, FdtError,
@@ -516,21 +517,52 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIter<'a, P> {
     }
 }
 
-/// Represents the `/aliases` node with specific helper methods
+/// [Devicetree 3.3. `/aliases`
+/// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#aliases-node)
+///
+/// A devicetree may have an aliases node (`/aliases`) that defines one or more
+/// alias properties. The alias node shall be at the root of the devicetree and
+/// have the node name `/aliases`.
+///
+/// Each property of the `/aliases` node defines an alias. The property name
+/// specifies the alias name. The property value specifies the full path to a
+/// node in the devicetree. For example, the property `serial0 =
+/// "/simple-bus@fe000000/serial@llc500"` defines the alias `serial0`.
+///
+/// An alias value is a device path and is encoded as a string. The value
+/// represents the full path to a node, but the path does not need to refer to a
+/// leaf node.
+///
+/// A client program may use an alias property name to refer to a full device
+/// path as all or part of its string value. A client program, when considering
+/// a string as a device path, shall detect and use the alias.
+///
+/// ### Example
+///
+/// ```norust
+/// aliases {
+///     serial0 = "/simple-bus@fe000000/serial@llc500";
+///     ethernet0 = "/simple-bus@fe000000/ethernet@31c000";
+/// };
+/// ```
+///
+/// Given the alias `serial0`, a client program can look at the `/aliases` node
+/// and determine the alias refers to the device path
+/// `/simple-bus@fe000000/serial@llc500`.
 #[derive(Debug, Clone, Copy)]
 pub struct Aliases<'a, P: ParserWithMode<'a>> {
     pub(crate) node: FallibleNode<'a, P>,
 }
 
 impl<'a, P: ParserWithMode<'a>> Aliases<'a, P> {
-    /// Attempt to resolve an alias to a node name
+    /// Attempt to resolve an alias to a node name.
     pub fn resolve_name(self, alias: &str) -> P::Output<Option<&'a str>> {
         P::to_output(crate::tryblock!({
             self.node.properties()?.find(alias)?.map(|p| p.as_value().map_err(Into::into)).transpose()
         }))
     }
 
-    /// Attempt to find the node specified by the given alias
+    /// Attempt resolve an alias to the aliased-to node.
     pub fn resolve(self, alias: &str) -> P::Output<Option<Node<'a, P>>> {
         P::to_output(crate::tryblock!({
             let Some(path) = Aliases::<(_, NoPanic)> { node: self.node }.resolve_name(alias)? else {
@@ -542,10 +574,83 @@ impl<'a, P: ParserWithMode<'a>> Aliases<'a, P> {
     }
 }
 
-/// Represents a `/cpus/cpu*` node with specific helper methods
+/// [Devicetree 3.7.
+/// `/cpus`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#cpus-node-properties)
+///
+/// A `/cpus` node is required for all devicetrees. It does not represent a real
+/// device in the system, but acts as a container for child cpu nodes which
+/// represent the systems CPUs.
+pub struct Cpus<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    pub(crate) node: FallibleNode<'a, P>,
+}
+
+impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
+    /// Retrieve the `#address-cells` and `#size-cells` values from this node
+    pub fn cell_sizes(&self) -> P::Output<CellSizes> {
+        P::to_output(
+            self.node.property().and_then(|p| p.ok_or(FdtError::MissingRequiredProperty("#address-cells/#size-cells"))),
+        )
+    }
+
+    /// Attempt to find a common `timebase-frequency` property inside of this
+    /// node, which will only exist if there is a common value between the child
+    /// `cpu` nodes. See [`Cpu::timebase_frequency`] for documentation about the
+    /// `timebase-frequency` property.
+    pub fn common_timebase_frequency(&self) -> P::Output<Option<u64>> {
+        P::to_output(crate::tryblock!({
+            match self.node.properties()?.find("timebase-frequency")? {
+                Some(prop) => match prop.value().len() {
+                    4 => Ok(Some(u64::from(prop.as_value::<u32>()?))),
+                    8 => Ok(Some(prop.as_value::<u64>()?)),
+                    _ => Err(FdtError::InvalidPropertyValue),
+                },
+                None => Ok(None),
+            }
+        }))
+    }
+
+    /// Attempt to find a common `clock-frequency` property inside of this
+    /// node, which will only exist if there is a common value between the child
+    /// `cpu` nodes. See [`Cpu::clock_frequency`] for documentation about the
+    /// `clock-frequency` property.
+    pub fn common_clock_frequency(&self) -> P::Output<Option<u64>> {
+        P::to_output(crate::tryblock!({
+            match self.node.properties()?.find("clock-frequency")? {
+                Some(prop) => match prop.value().len() {
+                    4 => Ok(Some(u64::from(prop.as_value::<u32>()?))),
+                    8 => Ok(Some(prop.as_value::<u64>()?)),
+                    _ => Err(FdtError::InvalidPropertyValue),
+                },
+                None => Ok(None),
+            }
+        }))
+    }
+}
+
+/// [Devicetree 3.8.
+/// `/cpus/cpu*`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#cpus-cpu-node-properties)
+///
+/// A `cpu` node represents a hardware execution block that is sufficiently
+/// independent that it is capable of running an operating system without
+/// interfering with other CPUs possibly running other operating systems.
+///
+/// Hardware threads that share an MMU would generally be represented under one
+/// `cpu` node. If other more complex CPU topographies are designed, the binding
+/// for the CPU must describe the topography (e.g. threads that don’t share an
+/// MMU).
+///
+/// CPUs and threads are numbered through a unified number-space that should
+/// match as closely as possible the interrupt controller’s numbering of
+/// CPUs/threads.
+///
+/// Properties that have identical values across `cpu` nodes may be placed in the
+/// /cpus node instead. A client program must first examine a specific `cpu` node,
+/// but if an expected property is not found then it should look at the parent
+/// /cpus node. This results in a less verbose representation of properties
+/// which are identical across all CPUs.
 #[derive(Debug, Clone, Copy)]
 pub struct Cpu<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
-    node: FallibleNode<'a, P>,
+    pub(crate) node: FallibleNode<'a, P>,
 }
 
 impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
@@ -668,6 +773,182 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
             }
         }))
     }
+
+    /// [Devicetree 3.8.1
+    /// `status`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
+    ///
+    /// A standard property describing the state of a CPU. This property shall
+    /// be present for nodes representing CPUs in a symmetric multiprocessing
+    /// (SMP) configuration. For a CPU node the meaning of the `"okay"`,
+    /// `"disabled"` and `"fail"` values are as follows:
+    ///
+    /// `"okay"`: The CPU is running.
+    ///
+    /// `"disabled"`: The CPU is in a quiescent state.
+    ///
+    /// `"fail"`: The CPU is not operational or does not exist.
+    ///
+    /// A quiescent CPU is in a state where it cannot interfere with the normal
+    /// operation of other CPUs, nor can its state be affected by the normal
+    /// operation of other running CPUs, except by an explicit method for
+    /// enabling or re-enabling the quiescent CPU (see the enable-method
+    /// property).
+    ///
+    /// In particular, a running CPU shall be able to issue broadcast TLB
+    /// invalidates without affecting a quiescent CPU.
+    ///
+    /// Examples: A quiescent CPU could be in a spin loop, held in reset, and
+    /// electrically isolated from the system bus or in another implementation
+    /// dependent state.
+    ///
+    /// A CPU with `"fail"` status does not affect the system in any way. The
+    /// status is assigned to nodes for which no corresponding CPU exists.
+    pub fn status(&self) -> P::Output<Option<CpuStatus>> {
+        P::to_output(crate::tryblock!({
+            let Some(status) = self.node.properties()?.find("status")? else {
+                return Ok(None);
+            };
+
+            Ok(Some(CpuStatus(status.as_value()?)))
+        }))
+    }
+
+    /// [Devicetree 3.8.1
+    /// `enable-method`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
+    ///
+    /// Describes the method by which a CPU in a disabled state is enabled. This
+    /// property is required for CPUs with a status property with a value of
+    /// `"disabled"`. The value consists of one or more strings that define the
+    /// method to release this CPU. If a client program recognizes any of the
+    /// methods, it may use it. The value shall be one of the following:
+    ///
+    /// `"spin-table"`: The CPU is enabled with the spin table method defined in
+    /// the DTSpec.
+    ///
+    /// `"[vendor],[method]"`: Implementation dependent string that describes
+    /// the method by which a CPU is released from a `"disabled"` state. The
+    /// required format is: `"[vendor],[method]"`, where vendor is a string
+    /// describing the name of the manufacturer and method is a string
+    /// describing the vendor specific mechanism.
+    ///
+    /// Example: `"fsl,MPC8572DS"`
+    pub fn enable_method(&self) -> P::Output<Option<CpuEnableMethods>> {
+        P::to_output(crate::tryblock!({
+            let Some(status) = self.node.properties()?.find("enable-method")? else {
+                return Ok(None);
+            };
+
+            let s: &'a str = status.as_value()?;
+
+            if s.is_empty() {
+                return Err(FdtError::InvalidPropertyValue);
+            }
+
+            Ok(Some(CpuEnableMethods(s.into())))
+        }))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct CpuStatus<'a>(&'a str);
+
+impl<'a> CpuStatus<'a> {
+    /// The CPU is running.
+    pub const OKAY: Self = Self("okay");
+    /// The CPU is in a quiescent state.
+    pub const DISABLED: Self = Self("disabled");
+    /// The CPU is not operational or does not exist.
+    pub const FAIL: Self = Self("fail");
+
+    /// Create a new [`CpuStatus`] which may not be one of the associated
+    /// constant values.
+    pub fn new(status: &'a str) -> Self {
+        Self(status)
+    }
+
+    /// Whether the status is `"okay"`.
+    pub fn is_okay(self) -> bool {
+        self == Self::OKAY
+    }
+
+    /// Whether the status is `"disabled"`.
+    pub fn is_disabled(self) -> bool {
+        self == Self::DISABLED
+    }
+
+    /// Whether the status is `"failed"`
+    pub fn is_failed(self) -> bool {
+        self == Self::FAIL
+    }
+}
+
+impl<'a> PartialEq<str> for CpuStatus<'a> {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+/// Type representing one or more CPU enable methods. See
+/// [`Cpu::enable_method`].
+#[derive(Debug, Clone)]
+pub struct CpuEnableMethods<'a>(StringList<'a>);
+
+impl<'a> CpuEnableMethods<'a> {
+    /// Create an iterator over the enable methods.
+    pub fn iter(&self) -> CpuEnableMethodsIter<'a> {
+        CpuEnableMethodsIter(self.0.clone())
+    }
+
+    /// Return the first enable method contained in the list of enable methods.
+    pub fn first(&self) -> CpuEnableMethod<'a> {
+        self.iter().next().unwrap()
+    }
+}
+
+impl<'a> IntoIterator for CpuEnableMethods<'a> {
+    type IntoIter = CpuEnableMethodsIter<'a>;
+    type Item = CpuEnableMethod<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        CpuEnableMethodsIter(self.0)
+    }
+}
+
+/// Iterator over the enable methods described by the `enable-method` property
+/// on a CPU node. See [`Cpu::enable_method`].
+pub struct CpuEnableMethodsIter<'a>(StringList<'a>);
+
+impl<'a> Iterator for CpuEnableMethodsIter<'a> {
+    type Item = CpuEnableMethod<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0.next()? {
+            "spin-table" => Some(CpuEnableMethod::SpinTable),
+            other => {
+                let (vendor, method) = other.split_once(',').unwrap_or((other, ""));
+                Some(CpuEnableMethod::VendorMethod { vendor, method })
+            }
+        }
+    }
+}
+
+/// An enable method contained by the [`Cpu::enable_method`]
+pub enum CpuEnableMethod<'a> {
+    /// The CPU is enabled with the spin table method defined in the DTSpec.
+    SpinTable,
+    /// Implementation dependent string that describes the method by which a CPU
+    /// is released from a `"disabled"` state.
+    VendorMethod {
+        /// The manufacturer.
+        vendor: &'a str,
+        /// The vendor specific mechanism.
+        ///
+        /// NOTE: If the string value of this enable method does not match the
+        /// `"[vendor],[method]"` format defined by the devicetree spec, this
+        /// will be an empty string.
+        method: &'a str,
+    },
 }
 
 /// See [`Cpu::reg`]

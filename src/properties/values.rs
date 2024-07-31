@@ -129,3 +129,9 @@ impl<'a> Iterator for StringList<'a> {
         self.strs.next()
     }
 }
+
+impl<'a> From<&'a str> for StringList<'a> {
+    fn from(value: &'a str) -> Self {
+        Self { strs: value.split('\0') }
+    }
+}
