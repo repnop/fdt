@@ -1,3 +1,7 @@
+pub mod aliases;
+pub mod cpus;
+pub mod memory;
+
 use crate::{
     parsing::{
         aligned::AlignedParser, BigEndianToken, NoPanic, Panic, PanicMode, ParseError, Parser, ParserWithMode,
