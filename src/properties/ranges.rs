@@ -1,6 +1,14 @@
-use crate::cell_collector::{BuildCellCollector, CellCollector, CollectCellsError};
+use crate::{
+    cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
+    nodes::{root::Root, FallibleNode},
+    parsing::{NoPanic, ParserWithMode},
+    FdtError,
+};
 
-use super::cells::{AddressCells, CellSizes};
+use super::{
+    cells::{AddressCells, CellSizes},
+    Property,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Ranges<'a> {
@@ -22,6 +30,23 @@ impl<'a> Ranges<'a> {
             ranges: self.ranges,
             _collectors: core::marker::PhantomData,
         }
+    }
+}
+
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Ranges<'a> {
+    fn parse(
+        node: FallibleNode<'a, P>,
+        _: Root<'a, (<P as ParserWithMode<'a>>::Parser, NoPanic)>,
+    ) -> Result<Option<Self>, FdtError> {
+        let Some(ranges) = node.properties()?.find("ranges")? else {
+            return Ok(None);
+        };
+
+        let parent_address_cells =
+            node.parent().ok_or(FdtError::MissingParent)?.property::<AddressCells>()?.unwrap_or_default();
+        let cell_sizes = node.property::<CellSizes>()?.unwrap_or_default();
+
+        Ok(Some(Self { parent_address_cells, cell_sizes, ranges: ranges.value() }))
     }
 }
 

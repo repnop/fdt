@@ -1,8 +1,7 @@
 use crate::{
     cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
-    nodes::FallibleNode,
-    parsing::{NoPanic, ParserWithMode},
-    standard_nodes::Root,
+    nodes::{FallibleNode, FallibleRoot},
+    parsing::ParserWithMode,
     FdtError,
 };
 
@@ -33,7 +32,7 @@ impl<'a> Reg<'a> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Reg<'a> {
-    fn parse(node: FallibleNode<'a, P>, _: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         let Some(prop) = node.raw_property("reg")? else {
             return Ok(None);
         };
@@ -153,7 +152,7 @@ impl VirtualReg {
 }
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for VirtualReg {
-    fn parse(node: FallibleNode<'a, P>, _: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("virtual-reg")? {
             Some(vreg) => Ok(Some(Self(vreg.as_value()?))),
             None => Ok(None),

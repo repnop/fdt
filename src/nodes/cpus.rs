@@ -1,6 +1,6 @@
 use crate::{
     cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
-    parsing::{aligned::AlignedParser, Panic, ParserWithMode},
+    parsing::{aligned::AlignedParser, NoPanic, Panic, ParserWithMode},
     properties::{
         cells::{AddressCells, CellSizes},
         values::StringList,
@@ -8,7 +8,7 @@ use crate::{
     FdtError,
 };
 
-use super::FallibleNode;
+use super::{AsNode, FallibleNode, NodeChildrenIter};
 
 /// [Devicetree 3.7.
 /// `/cpus`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#cpus-node-properties)
@@ -22,6 +22,7 @@ pub struct Cpus<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
 
 impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
     /// Retrieve the `#address-cells` and `#size-cells` values from this node
+    #[track_caller]
     pub fn cell_sizes(&self) -> P::Output<CellSizes> {
         P::to_output(
             self.node.property().and_then(|p| p.ok_or(FdtError::MissingRequiredProperty("#address-cells/#size-cells"))),
@@ -32,6 +33,7 @@ impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
     /// node, which will only exist if there is a common value between the child
     /// `cpu` nodes. See [`Cpu::timebase_frequency`] for documentation about the
     /// `timebase-frequency` property.
+    #[track_caller]
     pub fn common_timebase_frequency(&self) -> P::Output<Option<u64>> {
         P::to_output(crate::tryblock!({
             match self.node.properties()?.find("timebase-frequency")? {
@@ -49,6 +51,7 @@ impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
     /// node, which will only exist if there is a common value between the child
     /// `cpu` nodes. See [`Cpu::clock_frequency`] for documentation about the
     /// `clock-frequency` property.
+    #[track_caller]
     pub fn common_clock_frequency(&self) -> P::Output<Option<u64>> {
         P::to_output(crate::tryblock!({
             match self.node.properties()?.find("clock-frequency")? {
@@ -60,6 +63,32 @@ impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
                 None => Ok(None),
             }
         }))
+    }
+
+    pub fn cpus(&self) -> P::Output<CpusIter<'a, P>> {
+        P::to_output(crate::tryblock!({ Ok(CpusIter { children: self.node.children()?.iter() }) }))
+    }
+}
+
+impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for Cpus<'a, P> {
+    fn as_node(&self) -> super::Node<'a, P> {
+        self.node.alt()
+    }
+}
+
+pub struct CpusIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    children: NodeChildrenIter<'a, (P::Parser, NoPanic)>,
+}
+
+impl<'a, P: ParserWithMode<'a>> Iterator for CpusIter<'a, P> {
+    type Item = P::Output<Cpu<'a, P>>;
+
+    #[track_caller]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.children.next()? {
+            Ok(node) => Some(P::to_output(Ok(Cpu { node }))),
+            Err(e) => Some(P::to_output(Err(e))),
+        }
     }
 }
 
@@ -90,8 +119,8 @@ pub struct Cpu<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
-    /// [Devicetree 3.8.1
-    /// `reg`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
+    /// [Devicetree 3.8.1 General Properties of `/cpus/cpu*`
+    /// nodes](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
     ///
     /// **Required**
     ///
@@ -117,6 +146,8 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
     /// PIR cannot be modified and the PIR value is distinct from the interrupt
     /// controller number space, the CPUs binding may define a binding-specific
     /// representation of PIR values if desired.
+    #[inline]
+    #[track_caller]
     pub fn reg<C: CellCollector>(self) -> P::Output<CpuIds<'a, C>> {
         P::to_output(crate::tryblock!({
             let Some(reg) = self.node.properties()?.find("reg")? else {
@@ -135,8 +166,8 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
         }))
     }
 
-    /// [Devicetree 3.8.1
-    /// `clock-frequency`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
+    /// [Devicetree 3.8.1 General Properties of `/cpus/cpu*`
+    /// nodes](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
     ///
     /// **Required**
     ///
@@ -145,6 +176,8 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
     ///
     /// * A 32-bit integer consisting of one `<u32>` specifying the frequency.
     /// * A 64-bit integer represented as a `<u64>` specifying the frequency.
+    #[inline]
+    #[track_caller]
     pub fn clock_frequency(self) -> P::Output<u64> {
         P::to_output(crate::tryblock!({
             match self.node.properties()?.find("clock-frequency")? {
@@ -172,17 +205,19 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
         }))
     }
 
-    /// [Devicetree 3.8.1
-    /// `timebase-frequency`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
+    /// [Devicetree 3.8.1 General Properties of `/cpus/cpu*`
+    /// nodes](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
     ///
     /// **Required**
     ///
     /// Specifies the current frequency at which the timebase and decrementer
-    /// registers are updated (in Hertz). The value is a `<prop-encoded-array>` in
-    /// one of two forms:
+    /// registers are updated (in Hertz). The value is a `<prop-encoded-array>`
+    /// in one of two forms:
     ///
     /// * A 32-bit integer consisting of one `<u32>` specifying the frequency.
     /// * A 64-bit integer represented as a `<u64>`.
+    #[inline]
+    #[track_caller]
     pub fn timebase_frequency(self) -> P::Output<u64> {
         P::to_output(crate::tryblock!({
             match self.node.properties()?.find("timebase-frequency")? {
@@ -210,8 +245,8 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
         }))
     }
 
-    /// [Devicetree 3.8.1
-    /// `status`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
+    /// [Devicetree 3.8.1 General Properties of `/cpus/cpu*`
+    /// nodes](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
     ///
     /// A standard property describing the state of a CPU. This property shall
     /// be present for nodes representing CPUs in a symmetric multiprocessing
@@ -239,6 +274,8 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
     ///
     /// A CPU with `"fail"` status does not affect the system in any way. The
     /// status is assigned to nodes for which no corresponding CPU exists.
+    #[inline]
+    #[track_caller]
     pub fn status(&self) -> P::Output<Option<CpuStatus>> {
         P::to_output(crate::tryblock!({
             let Some(status) = self.node.properties()?.find("status")? else {
@@ -249,8 +286,8 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
         }))
     }
 
-    /// [Devicetree 3.8.1
-    /// `enable-method`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
+    /// [Devicetree 3.8.1 General Properties of `/cpus/cpu*`
+    /// nodes](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#general-properties-of-cpus-cpu-nodes)
     ///
     /// Describes the method by which a CPU in a disabled state is enabled. This
     /// property is required for CPUs with a status property with a value of
@@ -268,6 +305,8 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
     /// describing the vendor specific mechanism.
     ///
     /// Example: `"fsl,MPC8572DS"`
+    #[inline]
+    #[track_caller]
     pub fn enable_method(&self) -> P::Output<Option<CpuEnableMethods>> {
         P::to_output(crate::tryblock!({
             let Some(status) = self.node.properties()?.find("enable-method")? else {
@@ -282,6 +321,136 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
 
             Ok(Some(CpuEnableMethods(s.into())))
         }))
+    }
+
+    /// [Devicetree 3.8.1 General Properties of `/cpus/cpu*`
+    /// nodes](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#table-10)
+    ///
+    /// Specifies the CPU’s MMU type.
+    #[inline]
+    #[track_caller]
+    pub fn mmu_type(&self) -> P::Output<Option<&'a str>> {
+        P::to_output(self.node.properties().and_then(|p| {
+            p.find("mmu-type").and_then(|p| match p {
+                Some(p) => Ok(Some(p.as_value()?)),
+                None => Ok(None),
+            })
+        }))
+    }
+
+    /// [Devicetree 3.8.2. TLB
+    /// Properties](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#tlb-properties)
+    ///
+    /// If present specifies that the TLB has a split configuration, with
+    /// separate TLBs for instructions and data. If absent, specifies that the
+    /// TLB has a unified configuration. Required for a CPU with a TLB in a
+    /// split configuration.
+    #[inline]
+    #[track_caller]
+    pub fn tlb_split(&self) -> P::Output<bool> {
+        P::to_output(self.node.properties().and_then(|p| p.find("tlb-split").map(|p| p.is_some())))
+    }
+
+    /// [Devicetree 3.8.2. TLB
+    /// Properties](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#tlb-properties)
+    ///
+    /// Specifies the number of entries in the TLB. Required for a CPU with a
+    /// unified TLB for instruction and data addresses.
+    #[inline]
+    #[track_caller]
+    pub fn tlb_size(&self) -> P::Output<Option<u32>> {
+        P::to_output(self.node.properties().and_then(|p| {
+            p.find("tlb-size").and_then(|p| match p {
+                Some(p) => Ok(Some(p.as_value()?)),
+                None => Ok(None),
+            })
+        }))
+    }
+
+    /// [Devicetree 3.8.2. TLB
+    /// Properties](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#tlb-properties)
+    ///
+    /// Specifies the number of associativity sets in the TLB. Required for a
+    /// CPU with a unified TLB for instruction and data addresses.
+    #[inline]
+    #[track_caller]
+    pub fn tlb_sets(&self) -> P::Output<Option<u32>> {
+        P::to_output(self.node.properties().and_then(|p| {
+            p.find("tlb-sets").and_then(|p| match p {
+                Some(p) => Ok(Some(p.as_value()?)),
+                None => Ok(None),
+            })
+        }))
+    }
+
+    /// [Devicetree 3.8.2. TLB
+    /// Properties](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#tlb-properties)
+    ///
+    /// Specifies the number of entries in the data TLB. Required for a CPU with
+    /// a split TLB configuration.
+    #[inline]
+    #[track_caller]
+    pub fn d_tlb_size(&self) -> P::Output<Option<u32>> {
+        P::to_output(self.node.properties().and_then(|p| {
+            p.find("d-tlb-size").and_then(|p| match p {
+                Some(p) => Ok(Some(p.as_value()?)),
+                None => Ok(None),
+            })
+        }))
+    }
+
+    /// [Devicetree 3.8.2. TLB
+    /// Properties](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#tlb-properties)
+    ///
+    /// Specifies the number of associativity sets in the data TLB. Required for
+    /// a CPU with a split TLB configuration.
+    #[inline]
+    #[track_caller]
+    pub fn d_tlb_sets(&self) -> P::Output<Option<u32>> {
+        P::to_output(self.node.properties().and_then(|p| {
+            p.find("d-tlb-sets").and_then(|p| match p {
+                Some(p) => Ok(Some(p.as_value()?)),
+                None => Ok(None),
+            })
+        }))
+    }
+
+    /// [Devicetree 3.8.2. TLB
+    /// Properties](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#tlb-properties)
+    ///
+    /// Specifies the number of entries in the instruction TLB. Required for a
+    /// CPU with a split TLB configuration.
+    #[inline]
+    #[track_caller]
+    pub fn i_tlb_size(&self) -> P::Output<Option<u32>> {
+        P::to_output(self.node.properties().and_then(|p| {
+            p.find("i-tlb-size").and_then(|p| match p {
+                Some(p) => Ok(Some(p.as_value()?)),
+                None => Ok(None),
+            })
+        }))
+    }
+
+    /// [Devicetree 3.8.2. TLB
+    /// Properties](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#tlb-properties)
+    ///
+    /// Specifies the number of associativity sets in the instruction TLB.
+    /// Required for a CPU with a split TLB configuration.
+    #[inline]
+    #[track_caller]
+    pub fn i_tlb_sets(&self) -> P::Output<Option<u32>> {
+        P::to_output(self.node.properties().and_then(|p| {
+            p.find("i-tlb-sets").and_then(|p| match p {
+                Some(p) => Ok(Some(p.as_value()?)),
+                None => Ok(None),
+            })
+        }))
+    }
+}
+
+impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for Cpu<'a, P> {
+    fn as_node(&self) -> super::Node<'a, P> {
+        self.node.alt()
     }
 }
 

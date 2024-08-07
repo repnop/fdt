@@ -434,11 +434,12 @@ fn interrupt_map() {
 //     assert_eq!(fdt.root().model(), "riscv-virtio,qemu");
 // }
 
-// #[test]
-// fn memory_node() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     assert_eq!(fdt.memory().regions().count(), 1);
-// }
+#[test]
+fn memory_node() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let root = fdt.root();
+    assert_eq!(root.memory().reg().iter::<u64, u64>().count(), 1);
+}
 
 // #[test]
 // fn interrupt_cells() {
