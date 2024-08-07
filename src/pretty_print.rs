@@ -4,10 +4,9 @@
 
 use crate::{
     cell_collector::CollectCellsError,
-    nodes::{Node, NodeName},
+    nodes::{root::Root, Node, NodeName},
     parsing::{NoPanic, Parser},
     properties::values::{InvalidPropertyValue, U32List},
-    standard_nodes::Root,
     FdtError,
 };
 

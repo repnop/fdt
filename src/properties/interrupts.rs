@@ -3,9 +3,8 @@ pub mod pci;
 use super::{cells::AddressCells, PHandle, Property};
 use crate::{
     cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
-    nodes::{FallibleNode, Node},
+    nodes::{root::Root, FallibleNode, FallibleRoot, Node},
     parsing::{aligned::AlignedParser, BigEndianU32, NoPanic, Panic, ParserWithMode},
-    standard_nodes::Root,
     FdtError,
 };
 
@@ -18,7 +17,7 @@ pub enum Interrupts<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Interrupts<'a, P> {
-    fn parse(node: FallibleNode<'a, P>, root: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, root: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match ExtendedInterrupts::parse(node, root)? {
             Some(extended) => Ok(Some(Self::Extended(extended))),
             None => match LegacyInterrupts::parse(node, root)? {
@@ -61,7 +60,7 @@ impl<'a, P: ParserWithMode<'a>> LegacyInterrupts<'a, P> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for LegacyInterrupts<'a, P> {
-    fn parse(node: FallibleNode<'a, P>, root: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, root: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupts")? {
             Some(interrupts) => {
                 let interrupt_parent = match InterruptParent::<(P::Parser, NoPanic)>::parse(node, root)? {
@@ -151,7 +150,7 @@ impl<'a, P: ParserWithMode<'a>> ExtendedInterrupts<'a, P> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for ExtendedInterrupts<'a, P> {
-    fn parse(node: FallibleNode<'a, P>, root: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, root: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupts-extended")? {
             Some(interrupts) => {
                 Ok(Some(Self { encoded_array: interrupts.value(), root: Root { node: root.node.alt() } }))
@@ -179,7 +178,7 @@ impl<'a, P: ParserWithMode<'a>> Iterator for ExtendedInterruptsIter<'a, P> {
         self.encoded_array = self.encoded_array.get(4..)?;
 
         let res = crate::tryblock!({
-            let root = Root { node: self.root.node.fallible() };
+            let root: FallibleRoot<'a, P> = Root { node: self.root.node.fallible() };
             let Some(interrupt_parent) = root.resolve_phandle(phandle)? else {
                 return Err(FdtError::PHandleNotFound(phandle.0.to_ne()));
             };
@@ -243,13 +242,23 @@ pub struct InterruptSpecifier<'a> {
 }
 
 impl<'a> InterruptSpecifier<'a> {
-    /// Iterate over the components that comprise this interrupt specifier
+    /// Iterator over the components that comprise this interrupt specifier.
     pub fn iter(self) -> InterruptSpecifierIter<'a> {
         InterruptSpecifierIter { encoded_array: self.encoded_array }
     }
 
+    /// Iterator over `(u32, u32)` interrupt specifier pairs, if
+    /// `#interrupt-cells` value is `2`.
+    pub fn iter_pairs(self) -> Option<InterruptSpecifierIterPairs<'a>> {
+        if self.interrupt_cells.0 != 2 {
+            return None;
+        }
+
+        Some(InterruptSpecifierIterPairs { encoded_array: self.encoded_array })
+    }
+
     /// Extract the single component that comprises the interrupt specifier, if
-    /// the `#interrupt-cells` value is `1`
+    /// the `#interrupt-cells` value is `1`.
     pub fn single(self) -> Option<u32> {
         if self.interrupt_cells.0 != 1 {
             return None;
@@ -259,7 +268,7 @@ impl<'a> InterruptSpecifier<'a> {
     }
 
     /// Extract the two components that comprise the interrupt specifier, if the
-    /// `#interrupt-cells` value is `2`
+    /// `#interrupt-cells` value is `2`.
     pub fn pair(self) -> Option<(u32, u32)> {
         if self.interrupt_cells.0 != 2 {
             return None;
@@ -356,7 +365,7 @@ impl<'a, P: ParserWithMode<'a>> core::ops::DerefMut for InterruptParent<'a, P> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptParent<'a, P> {
-    fn parse(node: FallibleNode<'a, P>, root: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, root: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupt-parent")? {
             Some(phandle) => match root.resolve_phandle(PHandle(phandle.as_value()?))? {
                 Some(parent) => Ok(Some(Self(parent.alt()))),
@@ -376,7 +385,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptParent<'a, P> {
 pub struct InterruptCells(pub usize);
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptCells {
-    fn parse(node: FallibleNode<'a, P>, _: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("#interrupt-cells")? {
             Some(ic) => Ok(Some(Self(ic.as_value()?))),
             None => Ok(None),
@@ -416,7 +425,7 @@ impl<AddrMask: CellCollector, IntMask: CellCollector> InterruptMapMask<AddrMask,
 impl<'a, AddrMask: CellCollector, IntMask: CellCollector, P: ParserWithMode<'a>> Property<'a, P>
     for InterruptMapMask<AddrMask, IntMask>
 {
-    fn parse(node: FallibleNode<'a, P>, _: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         let address_cells =
             node.property::<AddressCells>()?.ok_or(FdtError::MissingRequiredProperty("#address-cells"))?;
         let interrupt_cells =
@@ -462,7 +471,7 @@ impl<'a, AddrMask: CellCollector, IntMask: CellCollector, P: ParserWithMode<'a>>
 pub struct InterruptController;
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptController {
-    fn parse(node: FallibleNode<'a, P>, _: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupt-controller")? {
             Some(_) => Ok(Some(Self)),
             None => Ok(None),
@@ -553,7 +562,7 @@ impl<
         PInt: CellCollector,
     > Property<'a, P> for InterruptMap<'a, CAddr, CInt, PAddr, PInt, P>
 {
-    fn parse(node: FallibleNode<'a, P>, _: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         let Some(encoded_map) = node.properties()?.find("interrupt-map")? else { return Ok(None) };
 
         let address_cells =

@@ -15,5 +15,6 @@ readme = "README.md"
 
 [features]
 pretty-printing = []
+linux-dt-bindings = []
 
 [dependencies]

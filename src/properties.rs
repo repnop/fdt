@@ -9,18 +9,13 @@ pub mod reg;
 pub mod values;
 
 use crate::{
-    nodes::{FallibleNode, Node},
-    parsing::{
-        aligned::AlignedParser, unaligned::UnalignedParser, BigEndianU32, NoPanic, Panic, Parser, ParserWithMode,
-        StringsBlock, StructsBlock,
-    },
-    standard_nodes::Root,
+    nodes::{FallibleNode, FallibleRoot},
+    parsing::{BigEndianU32, ParserWithMode},
     FdtError,
 };
-use core::ffi::CStr;
 
 pub trait Property<'a, P: ParserWithMode<'a>>: Sized {
-    fn parse(node: FallibleNode<'a, P>, root: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError>;
+    fn parse(node: FallibleNode<'a, P>, root: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError>;
 }
 
 /// [Devicetree 2.3.1.
@@ -54,10 +49,7 @@ pub struct Compatible<'a> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Compatible<'a> {
-    fn parse(
-        node: Node<'a, (P::Parser, NoPanic)>,
-        _: Root<'a, (P::Parser, NoPanic)>,
-    ) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         let property = node.properties()?.find("compatible")?;
 
         match property {
@@ -118,10 +110,7 @@ impl<'a> Iterator for CompatibleIter<'a> {
 pub struct Model<'a>(&'a str);
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Model<'a> {
-    fn parse(
-        node: Node<'a, (P::Parser, NoPanic)>,
-        _: Root<'a, (P::Parser, NoPanic)>,
-    ) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("model")? {
             Some(model) => Ok(Some(Self(model.as_value()?))),
             None => Ok(None),
@@ -176,10 +165,7 @@ impl<'a> core::cmp::PartialEq<Model<'a>> for str {
 pub struct PHandle(BigEndianU32);
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for PHandle {
-    fn parse(
-        node: Node<'a, (P::Parser, NoPanic)>,
-        _: Root<'a, (P::Parser, NoPanic)>,
-    ) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         let Some(phandle) = node.properties()?.find("phandle")? else {
             return Ok(None);
         };
@@ -246,10 +232,7 @@ impl<'a> Status<'a> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Status<'a> {
-    fn parse(
-        node: Node<'a, (P::Parser, NoPanic)>,
-        _: Root<'a, (P::Parser, NoPanic)>,
-    ) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("status")? {
             Some(model) => Ok(Some(Self(model.as_value()?))),
             None => Ok(None),
@@ -286,10 +269,7 @@ impl<'a> core::cmp::PartialEq<Status<'a>> for str {
 pub struct DmaCoherent;
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for DmaCoherent {
-    fn parse(
-        node: Node<'a, (P::Parser, NoPanic)>,
-        _: Root<'a, (P::Parser, NoPanic)>,
-    ) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("dma-coherent")? {
             Some(_) => Ok(Some(Self)),
             None => Ok(None),

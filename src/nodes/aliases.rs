@@ -1,4 +1,4 @@
-use super::{FallibleNode, Node};
+use super::{AsNode, FallibleNode, Node};
 use crate::parsing::{NoPanic, ParserWithMode};
 
 /// [Devicetree 3.3. `/aliases`
@@ -55,5 +55,11 @@ impl<'a, P: ParserWithMode<'a>> Aliases<'a, P> {
 
             self.node.make_root::<P::Parser>()?.find_node(path).map(|r| r.map(|n| n.alt()))
         }))
+    }
+}
+
+impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for Aliases<'a, P> {
+    fn as_node(&self) -> Node<'a, P> {
+        self.node.alt()
     }
 }

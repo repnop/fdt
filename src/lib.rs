@@ -4,46 +4,50 @@
 
 //! # `fdt`
 //!
-//! A pure-Rust `#![no_std]` crate for parsing Flattened Devicetrees, with the goal of having a
-//! very ergonomic and idiomatic API.
+//! A pure-Rust `#![no_std]` crate for parsing Flattened Devicetrees, with the
+//! goal of having a very ergonomic and idiomatic API.
 //!
-//! [![crates.io](https://img.shields.io/crates/v/fdt.svg)](https://crates.io/crates/fdt) [![Documentation](https://docs.rs/fdt/badge.svg)](https://docs.rs/fdt) ![Build](https://github.com/repnop/fdt/actions/workflows/test.yml/badge.svg?branch=master&event=push)
+//! [![crates.io](https://img.shields.io/crates/v/fdt.svg)](https://crates.io/crates/fdt)
+//! [![Documentation](https://docs.rs/fdt/badge.svg)](https://docs.rs/fdt)
+//! ![Build](https://github.com/repnop/fdt/actions/workflows/test.yml/badge.svg?branch=master&event=push)
 //!
 //! ## License
 //!
-//! This crate is licensed under the Mozilla Public License 2.0 (see the LICENSE file).
+//! This crate is licensed under the Mozilla Public License 2.0 (see the LICENSE
+//! file).
 //!
 //! ## Example
 //!
-//! ```rust,no_run
+//! ```rust
 //! static MY_FDT: &[u8] = include_bytes!("../dtb/test.dtb");
 //!
 //! fn main() {
-//!     let fdt = fdt::Fdt::new(MY_FDT).unwrap();
+//!     let fdt = fdt::Fdt::new_unaligned(MY_FDT).unwrap();
+//!     let root = fdt.root();
 //!
-//!     println!("This is a devicetree representation of a {}", fdt.root().model());
-//!     println!("...which is compatible with at least: {}", fdt.root().compatible().first());
-//!     println!("...and has {} CPU(s)", fdt.cpus().count());
+//!     println!("This is a devicetree representation of a {}", root.model());
+//!     println!("...which is compatible with at least: {}", root.compatible().first());
+//!     println!("...and has {} CPU(s)", root.cpus().cpus().count());
 //!     println!(
 //!         "...and has at least one memory location at: {:#X}\n",
-//!         fdt.memory().regions().next().unwrap().starting_address as usize
+//!         root.memory().reg().iter::<u64, u64>().next().unwrap().unwrap().address
 //!     );
 //!
-//!     let chosen = fdt.chosen();
+//!     let chosen = root.chosen();
 //!     if let Some(bootargs) = chosen.bootargs() {
 //!         println!("The bootargs are: {:?}", bootargs);
 //!     }
 //!
 //!     if let Some(stdout) = chosen.stdout() {
-//!         println!("It would write stdout to: {}", stdout.name());
+//!         println!("It would write stdout to: {}", stdout.path());
 //!     }
 //!
-//!     let soc = fdt.find_node("/soc");
+//!     let soc = root.find_node("/soc");
 //!     println!("Does it have a `/soc` node? {}", if soc.is_some() { "yes" } else { "no" });
 //!     if let Some(soc) = soc {
 //!         println!("...and it has the following children:");
-//!         for child in soc.children() {
-//!             println!("    {}", child.name);
+//!         for child in soc.children().iter() {
+//!             println!("    {}", child.name());
 //!         }
 //!     }
 //! }
@@ -58,18 +62,17 @@ extern crate std;
 mod tests;
 
 pub mod cell_collector;
-mod nodes;
+pub mod nodes;
 mod parsing;
 mod pretty_print;
 pub mod properties;
-pub mod standard_nodes;
 mod util;
 
+use nodes::root::Root;
 use parsing::{
     aligned::AlignedParser, unaligned::UnalignedParser, NoPanic, Panic, ParseError, Parser, ParserWithMode,
     StringsBlock, StructsBlock,
 };
-use standard_nodes::Root;
 // use standard_nodes::{Aliases, Chosen, Cpu, Memory, MemoryRange, MemoryRegion, Root};
 
 mod sealed {
@@ -88,6 +91,7 @@ pub enum FdtError {
     /// An error was encountered during parsing
     ParseError(ParseError),
     PHandleNotFound(u32),
+    MissingParent,
     MissingRequiredNode(&'static str),
     MissingRequiredProperty(&'static str),
     InvalidPropertyValue,
@@ -110,6 +114,7 @@ impl core::fmt::Display for FdtError {
             FdtError::PHandleNotFound(value) => {
                 write!(f, "a node containing the `phandle` property value of `{value}` was not found")
             }
+            FdtError::MissingParent => write!(f, "node parent is not present but needed to parse a property"),
             FdtError::MissingRequiredNode(name) => {
                 write!(f, "FDT is missing a required node `{}`", name)
             }
@@ -314,186 +319,11 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, NoPanic)> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Fdt<'a, P> {
-    /// Return the `/aliases` node, if one exists
-    // pub fn aliases(&self) -> Option<Aliases<'_, 'a>> {
-    //     Some(Aliases {
-    //         node: node::find_node(&mut FdtData::new(self.structs_block()), "/aliases", self, None)?,
-    //         header: self,
-    //     })
-    // }
-
-    /// Searches for the `/chosen` node, which is always available
-    // pub fn chosen(&self) -> Chosen<'_, 'a> {
-    //     node::find_node(&mut FdtData::new(self.structs_block()), "/chosen", self, None)
-    //         .map(|node| Chosen { node })
-    //         .expect("/chosen is required")
-    // }
-
-    /// Return the `/cpus` node, which is always available
-    // pub fn cpus(&self) -> impl Iterator<Item = Cpu<'_, 'a>> {
-    //     let parent = self.find_node("/cpus").expect("/cpus is a required node");
-
-    //     parent
-    //         .children()
-    //         .filter(|c| c.name.split('@').next().unwrap() == "cpu")
-    //         .map(move |cpu| Cpu { parent, node: cpu })
-    // }
-
-    /// Returns the memory node, which is always available
-    // pub fn memory(&self) -> Memory<'_, 'a> {
-    //     Memory { node: self.find_node("/memory").expect("requires memory node") }
-    // }
-
-    /// Returns an iterator over the memory reservations
-    // pub fn memory_reservations(&self) -> impl Iterator<Item = MemoryReservation> + 'a {
-    //     let mut stream = FdtData::new(&self.data[self.header.off_mem_rsvmap.to_ne() as usize..]);
-    //     let mut done = false;
-
-    //     core::iter::from_fn(move || {
-    //         if stream.is_empty() || done {
-    //             return None;
-    //         }
-
-    //         let res = MemoryReservation::from_bytes(&mut stream)?;
-
-    //         if res.address() as usize == 0 && res.size() == 0 {
-    //             done = true;
-    //             return None;
-    //         }
-
-    //         Some(res)
-    //     })
-    // }
-
-    /// Return reference to raw data. This can be used to obtain the original pointer passed to
-    /// [Fdt::from_ptr].
-    ///
-    /// # Example
-    /// ```
-    /// # let fdt_ref: &[u8] = include_bytes!("../dtb/test.dtb");
-    /// # let original_pointer = fdt_ref.as_ptr();
-    /// let fdt = unsafe{fdt::Fdt::from_ptr(original_pointer)}.unwrap();
-    /// assert_eq!(fdt.raw_data().as_ptr(), original_pointer);
-    /// ```
-    // pub fn raw_data(&self) -> &'a [P::Granularity] {
-    //     // self.structs
-    // }
-
     /// Return the root (`/`) node, which is always available
     pub fn root(&self) -> P::Output<Root<'a, P>> {
         let mut parser = P::new(self.structs.0, self.strings, self.structs);
-        P::to_output(parser.parse_root().map(|node| Root { node }))
+        P::to_output(parser.parse_root().map(|node| Root { node: node.fallible() }))
     }
-
-    /// Returns the first node that matches the node path, if you want all that
-    /// match the path, use `find_all_nodes`. This will automatically attempt to
-    /// resolve aliases if `path` is not found.
-    ///
-    /// Node paths must begin with a leading `/` and are ASCII only. Passing in
-    /// an invalid node path or non-ASCII node name in the path will return
-    /// `None`, as they will not be found within the devicetree structure.
-    ///
-    /// Note: if the address of a node name is left out, the search will find
-    /// the first node that has a matching name, ignoring the address portion if
-    /// it exists.
-    // pub fn find_node(&self, path: &str) -> Option<node::FdtNode<'_, 'a>> {
-    //     let node = node::find_node(&mut FdtData::new(self.structs_block()), path, self, None);
-    //     node.or_else(|| self.aliases()?.resolve_node(path))
-    // }
-
-    /// Searches for a node which contains a `compatible` property and contains
-    /// one of the strings inside of `with`
-    // pub fn find_compatible(&self, with: &[&str]) -> Option<node::FdtNode<'_, 'a>> {
-    //     self.all_nodes().find(|n| {
-    //         n.compatible().and_then(|compats| compats.all().find(|c| with.contains(c))).is_some()
-    //     })
-    // }
-
-    /// Searches for the given `phandle`
-    // pub fn find_phandle(&self, phandle: u32) -> Option<node::FdtNode<'_, 'a>> {
-    //     self.all_nodes().find(|n| {
-    //         n.properties()
-    //             .find(|p| p.name == "phandle")
-    //             .and_then(|p| Some(BigEndianU32::from_bytes(p.value)?.to_ne() == phandle))
-    //             .unwrap_or(false)
-    //     })
-    // }
-
-    /// Returns an iterator over all of the available nodes with the given path.
-    /// This does **not** attempt to find any node with the same name as the
-    /// provided path, if you're looking to do that, [`Fdt::all_nodes`] will
-    /// allow you to iterate over each node's name and filter for the desired
-    /// node(s).
-    ///
-    /// For example:
-    /// ```rust
-    /// static MY_FDT: &[u8] = include_bytes!("../dtb/test.dtb");
-    ///
-    /// let fdt = fdt::Fdt::new(MY_FDT).unwrap();
-    ///
-    /// for node in fdt.find_all_nodes("/soc/virtio_mmio") {
-    ///     println!("{}", node.name);
-    /// }
-    /// ```
-    /// prints:
-    /// ```notrust
-    /// virtio_mmio@10008000
-    /// virtio_mmio@10007000
-    /// virtio_mmio@10006000
-    /// virtio_mmio@10005000
-    /// virtio_mmio@10004000
-    /// virtio_mmio@10003000
-    /// virtio_mmio@10002000
-    /// virtio_mmio@10001000
-    /// ```
-    // pub fn find_all_nodes(&self, path: &'a str) -> impl Iterator<Item = node::FdtNode<'_, 'a>> {
-    //     let mut done = false;
-    //     let only_root = path == "/";
-    //     let valid_path = path.chars().fold(0, |acc, c| acc + if c == '/' { 1 } else { 0 }) >= 1;
-
-    //     let mut path_split = path.rsplitn(2, '/');
-    //     let child_name = path_split.next().unwrap();
-    //     let parent = match path_split.next() {
-    //         Some("") => Some(self.root().node),
-    //         Some(s) => node::find_node(&mut FdtData::new(self.structs_block()), s, self, None),
-    //         None => None,
-    //     };
-
-    //     let (parent, bad_parent) = match parent {
-    //         Some(parent) => (parent, false),
-    //         None => (self.find_node("/").unwrap(), true),
-    //     };
-
-    //     let mut child_iter = parent.children();
-
-    //     core::iter::from_fn(move || {
-    //         if done || !valid_path || bad_parent {
-    //             return None;
-    //         }
-
-    //         if only_root {
-    //             done = true;
-    //             return self.find_node("/");
-    //         }
-
-    //         let mut ret = None;
-
-    //         #[allow(clippy::while_let_on_iterator)]
-    //         while let Some(child) = child_iter.next() {
-    //             if child.name.split('@').next()? == child_name {
-    //                 ret = Some(child);
-    //                 break;
-    //             }
-    //         }
-
-    //         ret
-    //     })
-    // }
-
-    /// Returns an iterator over all of the nodes in the devicetree, depth-first
-    // pub fn all_nodes(&self) -> impl Iterator<Item = node::FdtNode<'_, 'a>> {
-    //     node::all_nodes(self)
-    // }
 
     /// Returns an iterator over all of the strings inside of the strings block
     pub fn strings(&self) -> impl Iterator<Item = &'a str> {

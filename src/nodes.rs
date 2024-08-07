@@ -1,6 +1,10 @@
 pub mod aliases;
+pub mod chosen;
 pub mod cpus;
 pub mod memory;
+pub mod root;
+
+use root::Root;
 
 use crate::{
     parsing::{
@@ -8,11 +12,11 @@ use crate::{
         StringsBlock, StructsBlock,
     },
     properties::{
+        ranges::Ranges,
         reg::Reg,
         values::{InvalidPropertyValue, PropertyValue},
         Property,
     },
-    standard_nodes::Root,
     FdtError,
 };
 
@@ -25,6 +29,11 @@ macro_rules! tryblock {
     ($block:block) => {{
         (|| -> Result<_, $crate::FdtError> { $block })()
     }};
+}
+
+/// Trait for extracting a [`Node`] from a wrapper type.
+pub trait AsNode<'a, P: ParserWithMode<'a>> {
+    fn as_node(&self) -> Node<'a, P>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -78,6 +87,7 @@ impl core::fmt::Display for NodeName<'_> {
 }
 
 pub type FallibleNode<'a, P> = Node<'a, (<P as ParserWithMode<'a>>::Parser, NoPanic)>;
+pub type FallibleRoot<'a, P> = Root<'a, (<P as ParserWithMode<'a>>::Parser, NoPanic)>;
 
 pub struct Node<'a, P: ParserWithMode<'a>> {
     pub(crate) this: &'a RawNode<<P as Parser<'a>>::Granularity>,
@@ -90,7 +100,7 @@ pub struct Node<'a, P: ParserWithMode<'a>> {
 impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
     /// Change the type of this node's [`PanicMode`] to [`NoPanic`]
     #[inline(always)]
-    pub(crate) fn fallible(self) -> Node<'a, (P::Parser, NoPanic)> {
+    pub(crate) fn fallible(self) -> FallibleNode<'a, P> {
         self.alt()
     }
 
@@ -130,8 +140,13 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
         )
     }
 
+    #[inline(always)]
     pub fn reg(&self) -> P::Output<Option<Reg<'a>>> {
         self.property::<Reg<'a>>()
+    }
+
+    pub fn ranges(&self) -> P::Output<Option<Ranges<'a>>> {
+        self.property()
     }
 
     #[inline]
@@ -194,6 +209,12 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
             structs: self.structs,
             _mode: core::marker::PhantomData,
         })
+    }
+}
+
+impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for Node<'a, P> {
+    fn as_node(&self) -> Node<'a, P> {
+        *self
     }
 }
 

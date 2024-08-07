@@ -1,7 +1,6 @@
 use crate::{
-    nodes::FallibleNode,
-    parsing::{unaligned::UnalignedParser, NoPanic, Parser, ParserWithMode, StringsBlock, StructsBlock},
-    standard_nodes::Root,
+    nodes::{FallibleNode, FallibleRoot},
+    parsing::{unaligned::UnalignedParser, Parser, ParserWithMode, StringsBlock, StructsBlock},
     FdtError,
 };
 
@@ -59,7 +58,7 @@ pub struct CellSizes {
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for CellSizes {
     #[inline]
-    fn parse(node: FallibleNode<'a, P>, _: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         let (mut address_cells, mut size_cells) = (None, None);
 
         for property in node.properties()? {
@@ -88,10 +87,35 @@ pub struct AddressCells(pub usize);
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for AddressCells {
     #[inline]
-    fn parse(node: FallibleNode<'a, P>, _: Root<'a, (P::Parser, NoPanic)>) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("#address-cells")? {
             Some(value) => Ok(Some(Self(value.as_value()?))),
             None => Ok(None),
         }
+    }
+}
+
+impl Default for AddressCells {
+    fn default() -> Self {
+        Self(2)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SizeCells(pub usize);
+
+impl<'a, P: ParserWithMode<'a>> Property<'a, P> for SizeCells {
+    #[inline]
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
+        match node.properties()?.find("#size-cells")? {
+            Some(value) => Ok(Some(Self(value.as_value()?))),
+            None => Ok(None),
+        }
+    }
+}
+
+impl Default for SizeCells {
+    fn default() -> Self {
+        Self(1)
     }
 }

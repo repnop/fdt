@@ -1,148 +1,24 @@
-// This Source Code Form is subject to the terms of the Mozilla Public License,
-// v. 2.0. If a copy of the MPL was not distributed with this file, You can
-// obtain one at https://mozilla.org/MPL/2.0/.
-
 use crate::{
-    cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
-    nodes::{FallibleNode, IntoSearchableNodeName, Node, RawNode, SearchableNodeName},
     parsing::{aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode},
-    properties::{
-        cells::{AddressCells, CellSizes},
-        values::StringList,
-        Compatible, PHandle, Property,
-    },
-    tryblock, FdtError,
+    properties::{cells::CellSizes, Compatible, PHandle, Property},
+    FdtError,
 };
 
-/// Represents the `/chosen` node with specific helper methods
-pub struct Chosen<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
-    pub(crate) node: Node<'a, P>,
-}
+use super::{
+    aliases::Aliases,
+    chosen::Chosen,
+    cpus::Cpus,
+    memory::{Memory, ReservedMemory},
+    FallibleNode, FallibleRoot, IntoSearchableNodeName, Node, RawNode, SearchableNodeName,
+};
 
-impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
-    /// Contains the bootargs, if they exist
-    #[track_caller]
-    pub fn bootargs(self) -> P::Output<Option<&'a str>> {
-        P::to_output(crate::tryblock!({
-            let node = self.node.fallible();
-            for prop in node.properties()?.into_iter().flatten() {
-                if prop.name() == "bootargs" {
-                    return Ok(Some(
-                        core::str::from_utf8(&prop.value()[..prop.value().len() - 1])
-                            .map_err(|_| FdtError::ParseError(ParseError::InvalidCStrValue))?,
-                    ));
-                }
-            }
-
-            Ok(None)
-        }))
-    }
-
-    /// Looks up the `stdout-path` property and returns the [`StdInOutPath`]
-    /// representing the path. The path may be an alias and require being
-    /// resolved with [`Alias::resolve`] before being used in conjunction with
-    /// [`Root::find_node`]. For more information about the path parameters, see
-    /// [`StdInOutPath::params`].
-    #[track_caller]
-    pub fn stdout(self) -> P::Output<Option<StdInOutPath<'a>>> {
-        P::to_output(crate::tryblock!({
-            let node = self.node.fallible();
-            node.properties()?
-                .into_iter()
-                .find_map(|n| match n {
-                    Err(e) => Some(Err(e)),
-                    Ok(property) => match property.name() == "stdout-path" {
-                        false => None,
-                        true => Some(property.as_value::<&'a str>().map_err(Into::into).map(|s| {
-                            let (path, params) =
-                                s.split_once(':').map_or_else(|| (s, None), |(name, params)| (name, Some(params)));
-                            StdInOutPath { path, params }
-                        })),
-                    },
-                })
-                .transpose()
-        }))
-    }
-
-    /// Looks up the `stdin-path` property and returns the [`StdInOutPath`]
-    /// representing the path. The path may be an alias and require being
-    /// resolved with [`Alias::resolve`] before being used in conjunction with
-    /// [`Root::find_node`]. For more information about the path parameters, see
-    /// [`StdInOutPath::params`].
-    #[track_caller]
-    pub fn stdin(self) -> P::Output<Option<StdInOutPath<'a>>> {
-        P::to_output(crate::tryblock!({
-            let node = self.node.fallible();
-            node.properties()?
-                .into_iter()
-                .find_map(|n| match n {
-                    Err(e) => Some(Err(e)),
-                    Ok(property) => match property.name() == "stdin-path" {
-                        false => None,
-                        true => Some(property.as_value::<&str>().map_err(Into::into).map(|s| {
-                            let (path, params) =
-                                s.split_once(':').map_or_else(|| (s, None), |(name, params)| (name, Some(params)));
-                            StdInOutPath { path, params }
-                        })),
-                    },
-                })
-                .transpose()
-        }))
-    }
-}
-
-impl<'a, P: ParserWithMode<'a>> Clone for Chosen<'a, P> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<'a, P: ParserWithMode<'a>> Copy for Chosen<'a, P> {}
-
-pub struct StdInOutPath<'a> {
-    path: &'a str,
-    params: Option<&'a str>,
-}
-
-impl<'a> StdInOutPath<'a> {
-    /// Path to the node representing the stdin/stdout device. This node path
-    /// may be an alias, which can be resolved with [`Aliases::resolve`]. To be
-    /// used in conjunction with [`Root::find_node`].
-    pub fn path(&self) -> &'a str {
-        self.path
-    }
-
-    /// Optional parameters specified by the stdin/stdout property value. See
-    /// https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node
-    ///
-    /// Example:
-    ///
-    /// ```dts
-    /// / {
-    ///     chosen {
-    ///         stdout-path = "/soc/uart@10000000:115200";
-    ///         stdin-path = "/soc/uart@10000000";
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// ```rust
-    /// # let fdt = fdt::Fdt::new_unaligned(include_bytes!("../dtb/test.dtb")).unwrap();
-    /// # let chosen = fdt.root().chosen();
-    /// let stdout = chosen.stdout().unwrap();
-    /// let stdin = chosen.stdin().unwrap();
-    ///
-    /// assert_eq!((stdout.path(), stdout.params()), ("/soc/uart@10000000", None));
-    /// assert_eq!((stdin.path(), stdin.params()), ("/soc/uart@10000000", Some("115200")));
-    /// ```
-    pub fn params(&self) -> Option<&'a str> {
-        self.params
-    }
-}
-
-/// Represents the root (`/`) node with specific helper methods
+/// [Devicetree 3.2. Root
+/// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#root-node)
+///
+/// The devicetree has a single root node of which all other device nodes are
+/// descendants. The full path to the root node is `/`.
 pub struct Root<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
-    pub(crate) node: Node<'a, P>,
+    pub(crate) node: FallibleNode<'a, P>,
 }
 
 impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
@@ -156,10 +32,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     #[track_caller]
     pub fn cell_sizes(self) -> P::Output<CellSizes> {
         P::to_output(crate::tryblock!({
-            self.node
-                .fallible()
-                .property::<CellSizes>()?
-                .ok_or(FdtError::MissingRequiredProperty("#address-cells/#size-cells"))
+            self.node.property::<CellSizes>()?.ok_or(FdtError::MissingRequiredProperty("#address-cells/#size-cells"))
         }))
     }
 
@@ -238,12 +111,108 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
         }))
     }
 
+    /// [Devicetree 3.3. `/aliases`
+    /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#aliases-node)
+    ///
+    /// **Required**s
+    ///
+    /// A devicetree may have an aliases node (`/aliases`) that defines one or
+    /// more alias properties. The alias node shall be at the root of the
+    /// devicetree and have the node name `/aliases`.
+    ///
+    /// Each property of the `/aliases` node defines an alias. The property name
+    /// specifies the alias name. The property value specifies the full path to
+    /// a node in the devicetree. For example, the property `serial0 =
+    /// "/simple-bus@fe000000/serial@llc500"` defines the alias `serial0`.
+    pub fn aliases(&self) -> P::Output<Option<Aliases<'a, P>>> {
+        P::to_output(crate::tryblock!({
+            let this: FallibleRoot<'a, P> = Root { node: self.node };
+            match this.find_node("/aliases")? {
+                Some(node) => Ok(Some(Aliases { node })),
+                None => Ok(None),
+            }
+        }))
+    }
+
+    /// [Devicetree 3.6. `/chosen`
+    /// Node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node)
+    ///
+    /// **Required**
+    ///
+    /// The `/chosen` node does not represent a real device in the system but
+    /// describes parameters chosen or specified by the system firmware at run
+    /// time. It shall be a child of the root node.
+    pub fn chosen(&self) -> P::Output<Chosen<'a, P>> {
+        P::to_output(crate::tryblock!({
+            let this: FallibleRoot<'a, P> = Root { node: self.node };
+            match this.find_node("/chosen")? {
+                Some(node) => Ok(Chosen { node }),
+                None => Err(FdtError::MissingRequiredNode("/chosen")),
+            }
+        }))
+    }
+
+    /// [Devicetree 3.7.
+    /// `/cpus`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#cpus-node-properties)
+    ///
+    /// **Required**
+    ///
+    /// A `/cpus` node is required for all devicetrees. It does not represent a
+    /// real device in the system, but acts as a container for child cpu nodes
+    /// which represent the systems CPUs.
+    pub fn cpus(&self) -> P::Output<Cpus<'a, P>> {
+        P::to_output(crate::tryblock!({
+            let this: FallibleRoot<'a, P> = Root { node: self.node };
+            match this.find_node("/cpus")? {
+                Some(node) => Ok(Cpus { node }),
+                None => Err(FdtError::MissingRequiredNode("/cpus")),
+            }
+        }))
+    }
+
+    /// [Devicetree 3.4. `/memory`
+    /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#memory-node)
+    ///
+    /// **Required**
+    ///
+    /// A memory device node is required for all devicetrees and describes the
+    /// physical memory layout for the system. If a system has multiple ranges
+    /// of memory, multiple memory nodes can be created, or the ranges can be
+    /// specified in the `reg` property of a single memory node.
+    pub fn memory(&self) -> P::Output<Memory<'a, P>> {
+        P::to_output(crate::tryblock!({
+            let this: FallibleRoot<'a, P> = Root { node: self.node };
+            match this.find_node("/memory")? {
+                Some(node) => Ok(Memory { node }),
+                None => Err(FdtError::MissingRequiredNode("/memory")),
+            }
+        }))
+    }
+
+    /// [Devicetree 3.5. `/reserved-memory`
+    /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#reserved-memory-node)
+    ///
+    /// Reserved memory is specified as a node under the `/reserved-memory`
+    /// node. The operating system shall exclude reserved memory from normal
+    /// usage. One can create child nodes describing particular reserved
+    /// (excluded from normal use) memory regions. Such memory regions are
+    /// usually designed for the special usage by various device drivers.
+    pub fn reserved_memory(&self) -> P::Output<ReservedMemory<'a, P>> {
+        P::to_output(crate::tryblock!({
+            let this: FallibleRoot<'a, P> = Root { node: self.node };
+            match this.find_node("/reserved-memory")? {
+                Some(node) => Ok(ReservedMemory { node }),
+                None => Err(FdtError::MissingRequiredNode("/reserved-memory")),
+            }
+        }))
+    }
+
     /// Attempt to resolve a [`PHandle`] to the node containing a `phandle`
     /// property with the value
     #[track_caller]
     pub fn resolve_phandle(&self, phandle: PHandle) -> P::Output<Option<Node<'a, P>>> {
         P::to_output(crate::tryblock!({
-            let this = Root { node: self.node.fallible() };
+            let this: FallibleRoot<'a, P> = Root { node: self.node.fallible() };
             for node in this.all_nodes()? {
                 let (_, node) = node?;
                 if node.property::<PHandle>()? == Some(phandle) {
@@ -259,7 +228,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// `name` in depth-first order
     pub fn find_all_nodes_with_name<'b>(self, name: &'b str) -> P::Output<AllNodesWithNameIter<'a, 'b, P>> {
         P::to_output(crate::tryblock!({
-            let this = Root { node: self.node.fallible() };
+            let this: FallibleRoot<'a, P> = Root { node: self.node };
             Ok(AllNodesWithNameIter { iter: this.all_nodes()?, name })
         }))
     }
@@ -268,7 +237,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// with a name that matches `name` in depth-first order
     pub fn find_node_by_name(self, name: &str) -> P::Output<Option<Node<'a, P>>> {
         P::to_output(crate::tryblock!({
-            let this = Root { node: self.node.fallible() };
+            let this: FallibleRoot<'a, P> = Root { node: self.node };
             this.find_all_nodes_with_name(name)?.next().transpose().map(|n| n.map(|n| n.alt()))
         }))
     }
@@ -279,10 +248,10 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     #[track_caller]
     pub fn find_node(self, path: &str) -> P::Output<Option<Node<'a, P>>> {
         if path == "/" {
-            return P::to_output(Ok(Some(self.node)));
+            return P::to_output(Ok(Some(self.node.alt())));
         }
 
-        let fallible_self = Root { node: self.node.fallible() };
+        let fallible_self: FallibleRoot<'a, P> = Root { node: self.node.fallible() };
 
         let mut current_depth = 1;
         let mut all_nodes = match fallible_self.all_nodes() {
@@ -332,7 +301,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     #[track_caller]
     pub fn all_compatible<'b>(self, with: &'b [&str]) -> P::Output<AllCompatibleIter<'a, 'b, P>> {
         P::to_output(crate::tryblock!({
-            let this = Root { node: self.node.fallible() };
+            let this: FallibleRoot<'a, P> = Root { node: self.node };
             let f: fn(_) -> _ = |node: Result<(usize, FallibleNode<'a, P>), FdtError>| match node
                 .and_then(|(_, n)| Ok((n, n.property::<Compatible>()?)))
             {
@@ -351,7 +320,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     #[track_caller]
     pub fn all_nodes(self) -> P::Output<AllNodesIter<'a, P>> {
         let mut parser = P::new(self.node.this.as_slice(), self.node.strings, self.node.structs);
-        let res = tryblock!({
+        let res = crate::tryblock!({
             parser.advance_cstr()?;
 
             while parser.peek_token()? == BigEndianToken::PROP {
@@ -429,6 +398,7 @@ impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllNodesWithNameIter<'a, 'b, P>
 
 /// See [`Root::all_compatible`]
 pub struct AllCompatibleIter<'a, 'b, P: ParserWithMode<'a>> {
+    #[allow(clippy::type_complexity)]
     iter: core::iter::FilterMap<
         AllNodesIter<'a, (P::Parser, NoPanic)>,
         fn(
@@ -499,7 +469,7 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIter<'a, P> {
             },
         ))));
 
-        let res = tryblock!({
+        let res = crate::tryblock!({
             self.parser.advance_cstr()?;
 
             while self.parser.peek_token()? == BigEndianToken::PROP {
