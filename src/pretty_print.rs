@@ -48,10 +48,7 @@ pub fn print_node(
                 )?;
             }
             _ => match prop.as_str() {
-                Some(value)
-                    if (!value.is_empty() && value.chars().all(|c| c.is_ascii_graphic()))
-                        || prop.value == [0] =>
-                {
+                Some(value) if !value.is_empty() => {
                     writeln!(f, "{:width$}{} = {:?}", ' ', prop.name, value, width = n_spaces + 4)?
                 }
                 _ => match prop.value.len() {
