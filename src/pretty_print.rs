@@ -155,11 +155,8 @@ fn print_properties<'a, P: Parser<'a>>(
                 writeln!(f, "{:width$}{} = <{:#04x}>;", ' ', name, prop.as_value::<u32>()?, width = depth * 4 + 4)?;
             }
             _ => match prop.as_value::<&str>() {
-                Ok(value)
-                    if (!value.is_empty() && value.chars().all(|c| c.is_ascii_graphic())) || prop.value() == [0] =>
-                {
-                    writeln!(f, "{:width$}{} = {:?};", ' ', prop.name(), value, width = depth * 4 + 4)?
-                }
+                Ok("") => writeln!(f, "{:width$}{};", ' ', prop.name(), width = depth * 4 + 4)?,
+                Ok(value) => writeln!(f, "{:width$}{} = {:?};", ' ', prop.name(), value, width = depth * 4 + 4)?,
                 _ => match prop.value().len() {
                     0 => writeln!(f, "{:width$}{};", ' ', prop.name(), width = depth * 4 + 4)?,
                     _ => {
