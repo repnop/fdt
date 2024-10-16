@@ -1,11 +1,10 @@
+use super::{cells::CellSizes, Property};
 use crate::{
     cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
     nodes::{FallibleNode, FallibleRoot},
     parsing::ParserWithMode,
     FdtError,
 };
-
-use super::{cells::CellSizes, Property};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reg<'a> {

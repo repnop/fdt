@@ -1,15 +1,14 @@
-use crate::{
-    parsing::{aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode},
-    properties::{cells::CellSizes, Compatible, PHandle, Property},
-    FdtError,
-};
-
 use super::{
     aliases::Aliases,
     chosen::Chosen,
     cpus::Cpus,
     memory::{Memory, ReservedMemory},
     FallibleNode, FallibleRoot, IntoSearchableNodeName, Node, RawNode, SearchableNodeName,
+};
+use crate::{
+    parsing::{aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode},
+    properties::{cells::CellSizes, Compatible, PHandle, Property},
+    FdtError,
 };
 
 /// [Devicetree 3.2. Root

@@ -1,3 +1,7 @@
+use super::{
+    cells::{AddressCells, CellSizes},
+    Property,
+};
 use crate::{
     cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
     nodes::{root::Root, FallibleNode},
@@ -5,11 +9,10 @@ use crate::{
     FdtError,
 };
 
-use super::{
-    cells::{AddressCells, CellSizes},
-    Property,
-};
+#[cfg(doc)]
+use crate::nodes::Node;
 
+/// See [`Node::ranges`].
 #[derive(Debug, Clone, Copy)]
 pub struct Ranges<'a> {
     parent_address_cells: AddressCells,

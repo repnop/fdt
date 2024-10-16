@@ -2,12 +2,11 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file, You can
 // obtain one at https://mozilla.org/MPL/2.0/.
 
+use super::{FallibleNode, FallibleParser, FallibleRoot, Node};
 use crate::{
     parsing::{aligned::AlignedParser, Panic, ParseError, ParserWithMode},
     FdtError,
 };
-
-use super::FallibleNode;
 
 /// [Devicetree 3.6. `/chosen`
 /// Node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node)
@@ -20,7 +19,12 @@ pub struct Chosen<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
-    /// Contains the bootargs, if they exist
+    /// [Devicetree 3.6. `/chosen`
+    /// Node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node)
+    ///
+    /// A string that specifies the boot arguments for the client program. The
+    /// value could potentially be a null string if no boot arguments are
+    /// required.
     #[track_caller]
     pub fn bootargs(self) -> P::Output<Option<&'a str>> {
         P::to_output(crate::tryblock!({
@@ -37,13 +41,49 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
         }))
     }
 
-    /// Looks up the `stdout-path` property and returns the [`StdInOutPath`]
-    /// representing the path. The path may be an alias and require being
-    /// resolved with [`Alias::resolve`] before being used in conjunction with
-    /// [`Root::find_node`]. For more information about the path parameters, see
-    /// [`StdInOutPath::params`].
+    /// Like [`Chosen::stdout_path`] but also attempts to resolve the path (also
+    /// attempts to resolve the path to an alias if: the path does not look like
+    /// a devicetree path, or the path is not found), and returns the stdout
+    /// parameters along with the node, if it was successfully resolved.
+    ///
+    /// For more information on the `stdout-path` property, see
+    /// [`Chosen::stdout_path`].
+    #[allow(clippy::type_complexity)]
     #[track_caller]
-    pub fn stdout(self) -> P::Output<Option<StdInOutPath<'a>>> {
+    pub fn stdout(self) -> P::Output<Option<(Node<'a, P>, Option<&'a str>)>> {
+        P::to_output(crate::tryblock!({
+            let this: Chosen<'a, FallibleParser<'a, P>> = Chosen { node: self.node };
+            let Some(stdout) = this.stdout_path()? else { return Ok(None) };
+            let root: FallibleRoot<'a, P> = this.node.make_root()?;
+
+            let node = match stdout.path().contains('/') {
+                true => root.find_node(stdout.path())?,
+                false => None,
+            };
+
+            match node {
+                Some(node) => Ok(Some((node.alt(), stdout.params()))),
+                None => {
+                    let Some(aliases) = root.aliases()? else { return Ok(None) };
+                    match aliases.resolve(stdout.path())? {
+                        Some(node) => Ok(Some((node.alt(), stdout.params()))),
+                        None => Ok(None),
+                    }
+                }
+            }
+        }))
+    }
+
+    /// [Devicetree 3.6. `/chosen`
+    /// Node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node)
+    ///
+    /// A string that specifies the full path to the node representing the
+    /// device to be used for boot console output. If the character ":" is
+    /// present in the value it terminates the path. The value may be an alias.
+    /// If the `stdin-path` property is not specified, `stdout-path` should be
+    /// assumed to define the input device.
+    #[track_caller]
+    pub fn stdout_path(self) -> P::Output<Option<StdInOutPath<'a>>> {
         P::to_output(crate::tryblock!({
             self.node
                 .properties()?
@@ -63,13 +103,47 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
         }))
     }
 
-    /// Looks up the `stdin-path` property and returns the [`StdInOutPath`]
-    /// representing the path. The path may be an alias and require being
-    /// resolved with [`Alias::resolve`] before being used in conjunction with
-    /// [`Root::find_node`]. For more information about the path parameters, see
-    /// [`StdInOutPath::params`].
+    /// Like [`Chosen::stdin_path`] but also attempts to resolve the path (also
+    /// attempts to resolve the path to an alias if: the path does not look like
+    /// a devicetree path, or the path is not found), and returns the stdin
+    /// parameters along with the node, if it was successfully resolved.
+    ///
+    /// For more information on the `stdin-path` property, see
+    /// [`Chosen::stdin_path`].
+    #[allow(clippy::type_complexity)]
     #[track_caller]
-    pub fn stdin(self) -> P::Output<Option<StdInOutPath<'a>>> {
+    pub fn stdin(self) -> P::Output<Option<(Node<'a, P>, Option<&'a str>)>> {
+        P::to_output(crate::tryblock!({
+            let this: Chosen<'a, FallibleParser<'a, P>> = Chosen { node: self.node };
+            let Some(stdin) = this.stdin_path()? else { return Ok(None) };
+            let root: FallibleRoot<'a, P> = this.node.make_root()?;
+
+            let node = match stdin.path().contains('/') {
+                true => root.find_node(stdin.path())?,
+                false => None,
+            };
+
+            match node {
+                Some(node) => Ok(Some((node.alt(), stdin.params()))),
+                None => {
+                    let Some(aliases) = root.aliases()? else { return Ok(None) };
+                    match aliases.resolve(stdin.path())? {
+                        Some(node) => Ok(Some((node.alt(), stdin.params()))),
+                        None => Ok(None),
+                    }
+                }
+            }
+        }))
+    }
+
+    /// [Devicetree 3.6. `/chosen`
+    /// Node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#chosen-node)
+    ///
+    /// A string that specifies the full path to the node representing the
+    /// device to be used for boot console input. If the character ":" is
+    /// present in the value it terminates the path. The value may be an alias.
+    #[track_caller]
+    pub fn stdin_path(self) -> P::Output<Option<StdInOutPath<'a>>> {
         P::to_output(crate::tryblock!({
             self.node
                 .properties()?

@@ -1,3 +1,4 @@
+use super::{AsNode, FallibleNode, NodeChildrenIter};
 use crate::{
     cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
     parsing::{aligned::AlignedParser, NoPanic, Panic, ParserWithMode},
@@ -7,8 +8,6 @@ use crate::{
     },
     FdtError,
 };
-
-use super::{AsNode, FallibleNode, NodeChildrenIter};
 
 /// [Devicetree 3.7.
 /// `/cpus`](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#cpus-node-properties)

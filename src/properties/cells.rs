@@ -1,10 +1,9 @@
+use super::Property;
 use crate::{
     nodes::{FallibleNode, FallibleRoot},
     parsing::{unaligned::UnalignedParser, Parser, ParserWithMode, StringsBlock, StructsBlock},
     FdtError,
 };
-
-use super::Property;
 
 /// [Devicetree 2.3.5. `#address-cells` and
 /// `#size-cells`](https://devicetree-specification.readthedocs.io/en/latest/chapter2-devicetree-basics.html#address-cells-and-size-cells)
