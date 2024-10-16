@@ -9,6 +9,7 @@ use crate::{
     nodes::{Node, RawNode},
     FdtError, FdtHeader,
 };
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct BigEndianU32(u32);
