@@ -120,18 +120,8 @@ impl<'a> Iterator for RegRawIter<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RawRegEntry<'a> {
-    address: &'a [u8],
-    len: &'a [u8],
-}
-
-impl<'a> RawRegEntry<'a> {
-    pub fn address(self) -> &'a [u8] {
-        self.address
-    }
-
-    pub fn len(self) -> &'a [u8] {
-        self.len
-    }
+    pub address: &'a [u8],
+    pub len: &'a [u8],
 }
 
 /// [Devicetree 2.3.7.

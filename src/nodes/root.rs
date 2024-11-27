@@ -63,6 +63,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// `"manufacturer,model"`
     ///
     /// For example: `compatible = "fsl,mpc8572ds"`
+    #[track_caller]
     pub fn compatible(&self) -> P::Output<Compatible<'a>> {
         P::to_output(crate::tryblock!({
             <Compatible as Property<'a, P>>::parse(self.node.fallible(), self.node.make_root()?)?
@@ -76,6 +77,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// **Optional**
     ///
     /// Specifies a string representing the device’s serial number.
+    #[track_caller]
     pub fn serial_number(&self) -> P::Output<Option<&'a str>> {
         P::to_output(crate::tryblock!({
             match self.node.fallible().properties()?.find("serial-number")? {
@@ -101,6 +103,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// * "handset"
     /// * "watch"
     /// * "embedded"
+    #[track_caller]
     pub fn chassis_type(&self) -> P::Output<Option<&'a str>> {
         P::to_output(crate::tryblock!({
             match self.node.fallible().properties()?.find("serial-number")? {
@@ -123,6 +126,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// specifies the alias name. The property value specifies the full path to
     /// a node in the devicetree. For example, the property `serial0 =
     /// "/simple-bus@fe000000/serial@llc500"` defines the alias `serial0`.
+    #[track_caller]
     pub fn aliases(&self) -> P::Output<Option<Aliases<'a, P>>> {
         P::to_output(crate::tryblock!({
             let this: FallibleRoot<'a, P> = Root { node: self.node };
@@ -141,6 +145,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// The `/chosen` node does not represent a real device in the system but
     /// describes parameters chosen or specified by the system firmware at run
     /// time. It shall be a child of the root node.
+    #[track_caller]
     pub fn chosen(&self) -> P::Output<Chosen<'a, P>> {
         P::to_output(crate::tryblock!({
             let this: FallibleRoot<'a, P> = Root { node: self.node };
@@ -159,6 +164,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// A `/cpus` node is required for all devicetrees. It does not represent a
     /// real device in the system, but acts as a container for child cpu nodes
     /// which represent the systems CPUs.
+    #[track_caller]
     pub fn cpus(&self) -> P::Output<Cpus<'a, P>> {
         P::to_output(crate::tryblock!({
             let this: FallibleRoot<'a, P> = Root { node: self.node };
@@ -178,6 +184,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// physical memory layout for the system. If a system has multiple ranges
     /// of memory, multiple memory nodes can be created, or the ranges can be
     /// specified in the `reg` property of a single memory node.
+    #[track_caller]
     pub fn memory(&self) -> P::Output<Memory<'a, P>> {
         P::to_output(crate::tryblock!({
             let this: FallibleRoot<'a, P> = Root { node: self.node };
@@ -196,6 +203,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
     /// usage. One can create child nodes describing particular reserved
     /// (excluded from normal use) memory regions. Such memory regions are
     /// usually designed for the special usage by various device drivers.
+    #[track_caller]
     pub fn reserved_memory(&self) -> P::Output<ReservedMemory<'a, P>> {
         P::to_output(crate::tryblock!({
             let this: FallibleRoot<'a, P> = Root { node: self.node };
@@ -225,6 +233,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
 
     /// Returns an iterator that yields every node with the name that matches
     /// `name` in depth-first order
+    #[track_caller]
     pub fn find_all_nodes_with_name<'b>(self, name: &'b str) -> P::Output<AllNodesWithNameIter<'a, 'b, P>> {
         P::to_output(crate::tryblock!({
             let this: FallibleRoot<'a, P> = Root { node: self.node };
@@ -234,6 +243,7 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
 
     /// Attempt to find a node with the given name, returning the first node
     /// with a name that matches `name` in depth-first order
+    #[track_caller]
     pub fn find_node_by_name(self, name: &str) -> P::Output<Option<Node<'a, P>>> {
         P::to_output(crate::tryblock!({
             let this: FallibleRoot<'a, P> = Root { node: self.node };
@@ -372,8 +382,8 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Root<'a, P> {
 }
 
 pub struct AllNodesWithNameIter<'a, 'b, P: ParserWithMode<'a>> {
-    iter: AllNodesIter<'a, (P::Parser, NoPanic)>,
-    name: &'b str,
+    pub(crate) iter: AllNodesIter<'a, (P::Parser, NoPanic)>,
+    pub(crate) name: &'b str,
 }
 
 impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllNodesWithNameIter<'a, 'b, P> {
@@ -398,13 +408,13 @@ impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllNodesWithNameIter<'a, 'b, P>
 /// See [`Root::all_compatible`]
 pub struct AllCompatibleIter<'a, 'b, P: ParserWithMode<'a>> {
     #[allow(clippy::type_complexity)]
-    iter: core::iter::FilterMap<
+    pub(crate) iter: core::iter::FilterMap<
         AllNodesIter<'a, (P::Parser, NoPanic)>,
         fn(
             Result<(usize, FallibleNode<'a, P>), FdtError>,
         ) -> Option<Result<(FallibleNode<'a, P>, Compatible<'a>), FdtError>>,
     >,
-    with: &'b [&'b str],
+    pub(crate) with: &'b [&'b str],
 }
 
 impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllCompatibleIter<'a, 'b, P> {
@@ -427,9 +437,9 @@ impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllCompatibleIter<'a, 'b, P> {
 }
 
 pub struct AllNodesIter<'a, P: ParserWithMode<'a>> {
-    parser: P,
-    parents: [&'a [<P as Parser<'a>>::Granularity]; 16],
-    parent_index: usize,
+    pub(crate) parser: P,
+    pub(crate) parents: [&'a [<P as Parser<'a>>::Granularity]; 16],
+    pub(crate) parent_index: usize,
 }
 
 impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIter<'a, P> {

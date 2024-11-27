@@ -9,8 +9,11 @@ use properties::{
     cells::CellSizes,
     interrupts::{
         pci::{PciAddress, PciAddressHighBits},
-        InterruptMap,
+        InterruptCells, InterruptMap, Interrupts,
     },
+    ranges::Range,
+    reg::{RawRegEntry, RegEntry},
+    Compatible,
 };
 
 // use crate::{node::RawReg, *};
@@ -49,8 +52,8 @@ impl<const N: usize> Align4<N> {
 }
 
 static TEST: Align4<3764> = Align4::new(AlignArrayUp(*include_bytes!("../dtb/test.dtb")).align_up::<3764>());
-static ISSUE_3: Align4<4658> = Align4::new(*include_bytes!("../dtb/issue-3.dtb"));
-static SIFIVE: Align4<3872> = Align4::new(*include_bytes!("../dtb/sifive.dtb"));
+static ISSUE_3: &[u8] = include_bytes!("../dtb/issue-3.dtb");
+static SIFIVE: &[u8] = include_bytes!("../dtb/sifive.dtb");
 
 #[test]
 fn returns_fdt() {
@@ -172,71 +175,90 @@ fn properties() {
     );
 }
 
-// #[test]
-// fn correct_flash_regions() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let regions = fdt.find_node("/soc/flash").unwrap().reg().unwrap().collect::<std::vec::Vec<_>>();
+#[test]
+fn correct_flash_regions() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let regions = fdt
+        .find_node("/soc/flash")
+        .unwrap()
+        .reg()
+        .unwrap()
+        .iter::<usize, usize>()
+        .collect::<Result<std::vec::Vec<_>, _>>()
+        .unwrap();
 
-//     assert_eq!(
-//         regions,
-//         &[
-//             MemoryRegion { starting_address: 0x20000000 as *const u8, size: Some(0x2000000) },
-//             MemoryRegion { starting_address: 0x22000000 as *const u8, size: Some(0x2000000) }
-//         ]
-//     );
-// }
+    assert_eq!(
+        regions,
+        &[RegEntry { address: 0x20000000, len: 0x2000000 }, RegEntry { address: 0x22000000, len: 0x2000000 }]
+    );
+}
 
-// #[test]
-// fn parses_populated_ranges() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let ranges = fdt.find_node("/soc/pci").unwrap().ranges().unwrap().collect::<std::vec::Vec<_>>();
+#[test]
+fn parses_populated_ranges() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let ranges = fdt
+        .find_node("/soc/pci")
+        .unwrap()
+        .ranges()
+        .unwrap()
+        .iter::<PciAddress, u64, u64>()
+        .collect::<Result<std::vec::Vec<_>, _>>()
+        .unwrap();
 
-//     assert_eq!(
-//         ranges,
-//         &[
-//             MemoryRange {
-//                 child_bus_address: 0x0000_0000_0000_0000,
-//                 child_bus_address_hi: 0x0100_0000,
-//                 parent_bus_address: 0x3000000,
-//                 size: 0x10000,
-//             },
-//             MemoryRange {
-//                 child_bus_address: 0x40000000,
-//                 child_bus_address_hi: 0x2000000,
-//                 parent_bus_address: 0x4000_0000,
-//                 size: 0x4000_0000,
-//             }
-//         ]
-//     );
-// }
+    assert_eq!(
+        ranges,
+        &[
+            Range {
+                child_bus_address: PciAddress { hi: PciAddressHighBits::new(0x1000000), mid: 0, lo: 0 },
+                parent_bus_address: 0x3000000,
+                len: 0x10000
+            },
+            Range {
+                child_bus_address: PciAddress { hi: PciAddressHighBits::new(0x2000000), mid: 0, lo: 0x40000000 },
+                parent_bus_address: 0x4000_0000,
+                len: 0x4000_0000
+            }
+        ]
+    );
+}
 
-// #[test]
-// fn parses_empty_ranges() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let ranges = fdt.find_node("/soc").unwrap().ranges().unwrap().collect::<std::vec::Vec<_>>();
+#[test]
+fn parses_empty_ranges() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let ranges = fdt
+        .find_node("/soc")
+        .unwrap()
+        .ranges()
+        .unwrap()
+        .iter::<u64, u64, u64>()
+        .collect::<Result<std::vec::Vec<_>, _>>()
+        .unwrap();
 
-//     assert_eq!(ranges, &[]);
-// }
+    assert_eq!(ranges, &[]);
+}
 
-// #[test]
-// fn finds_with_addr() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     assert_eq!(fdt.find_node("/soc/virtio_mmio@10004000").unwrap().name, "virtio_mmio@10004000");
-// }
+#[test]
+fn finds_with_addr() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    assert_eq!(
+        fdt.find_node("/soc/virtio_mmio@10004000").unwrap().name(),
+        NodeName { name: "virtio_mmio", unit_address: Some("10004000") }
+    );
+}
 
-// #[test]
-// fn compatibles() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let res = fdt
-//         .find_node("/soc/test")
-//         .unwrap()
-//         .compatible()
-//         .unwrap()
-//         .all()
-//         .all(|s| ["sifive,test1", "sifive,test0", "syscon"].contains(&s));
+#[test]
+fn compatibles() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let res = fdt
+        .find_node("/soc/test")
+        .unwrap()
+        .property::<Compatible>()
+        .unwrap()
+        .into_iter()
+        .all(|s| ["sifive,test1", "sifive,test0", "syscon"].contains(&s));
 
-//     assert!(res);
-// }
+    assert!(res);
+}
 
 #[test]
 fn cell_sizes() {
@@ -292,147 +314,105 @@ fn interrupt_map() {
     }
 }
 
-// #[test]
-// fn no_properties() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let regions = fdt.find_node("/emptyproptest").unwrap();
-//     assert_eq!(regions.properties().count(), 0);
-// }
+#[test]
+fn no_properties() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let regions = fdt.find_node("/emptyproptest").unwrap();
+    assert_eq!(regions.properties().into_iter().count(), 0);
+}
 
-// #[test]
-// fn finds_all_nodes() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
+#[test]
+fn required_nodes() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let root = fdt.root();
+    root.cpus().iter().next().unwrap();
+    root.memory();
+    root.chosen();
+}
 
-//     let mut all_nodes: std::vec::Vec<_> = fdt.all_nodes().map(|n| n.name).collect();
-//     all_nodes.sort_unstable();
+#[test]
+fn doesnt_exist() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    assert!(fdt.find_node("/this/doesnt/exist").is_none());
+}
 
-//     assert_eq!(
-//         all_nodes,
-//         &[
-//             "/",
-//             "chosen",
-//             "clint@2000000",
-//             "cluster0",
-//             "core0",
-//             "cpu-map",
-//             "cpu@0",
-//             "cpus",
-//             "emptyproptest",
-//             "flash@20000000",
-//             "interrupt-controller",
-//             "memory@80000000",
-//             "pci@30000000",
-//             "plic@c000000",
-//             "poweroff",
-//             "reboot",
-//             "rtc@101000",
-//             "soc",
-//             "test@100000",
-//             "uart@10000000",
-//             "virtio_mmio@10001000",
-//             "virtio_mmio@10002000",
-//             "virtio_mmio@10003000",
-//             "virtio_mmio@10004000",
-//             "virtio_mmio@10005000",
-//             "virtio_mmio@10006000",
-//             "virtio_mmio@10007000",
-//             "virtio_mmio@10008000"
-//         ]
-//     )
-// }
+#[test]
+fn raw_reg() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let regions = fdt.find_node("/soc/flash").unwrap().reg().unwrap().iter_raw().collect::<std::vec::Vec<_>>();
 
-// #[test]
-// fn required_nodes() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     fdt.cpus().next().unwrap();
-//     fdt.memory();
-//     fdt.chosen();
-// }
+    assert_eq!(
+        regions,
+        &[
+            RawRegEntry { address: &0x20000000u64.to_be_bytes(), len: &0x2000000u64.to_be_bytes() },
+            RawRegEntry { address: &0x22000000u64.to_be_bytes(), len: &0x2000000u64.to_be_bytes() }
+        ]
+    );
+}
 
-// #[test]
-// fn doesnt_exist() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     assert!(fdt.find_node("/this/doesnt/exist").is_none());
-// }
+#[test]
+fn issue_3() {
+    let fdt = Fdt::new_unaligned(ISSUE_3).unwrap();
+    fdt.find_all_nodes_with_name("uart").for_each(|n| std::println!("{:?}", n));
+}
 
-// #[test]
-// fn raw_reg() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let regions =
-//         fdt.find_node("/soc/flash").unwrap().raw_reg().unwrap().collect::<std::vec::Vec<_>>();
+#[test]
+fn issue_4() {
+    let fdt = Fdt::new_unaligned(ISSUE_3).unwrap();
+    fdt.all_nodes().for_each(|n| std::println!("{:?}", n));
+}
 
-//     assert_eq!(
-//         regions,
-//         &[
-//             RawReg { address: &0x20000000u64.to_be_bytes(), size: &0x2000000u64.to_be_bytes() },
-//             RawReg { address: &0x22000000u64.to_be_bytes(), size: &0x2000000u64.to_be_bytes() }
-//         ]
-//     );
-// }
+#[test]
+fn cpus() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    for cpu in fdt.root().cpus().iter() {
+        cpu.reg::<u32>().iter().for_each(|n| std::println!("{:?}", n));
+    }
+}
 
-// #[test]
-// fn issue_3() {
-//     let fdt = Fdt::new(ISSUE_3.as_slice()).unwrap();
-//     fdt.find_all_nodes("uart").for_each(|n| std::println!("{:?}", n));
-// }
+#[test]
+fn invalid_node() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    assert!(fdt.find_node("this/is/an invalid node///////////").is_none());
+}
 
-// #[test]
-// fn issue_4() {
-//     let fdt = Fdt::new(ISSUE_3.as_slice()).unwrap();
-//     fdt.all_nodes().for_each(|n| std::println!("{:?}", n));
-// }
+#[test]
+fn aliases() {
+    let fdt = Fdt::new_unaligned(SIFIVE).unwrap();
+    let aliases = fdt.root().aliases().unwrap();
+    for (_, node_path) in aliases.iter() {
+        assert!(fdt.find_node(node_path).is_some(), "path: {:?}", node_path);
+    }
+}
 
-// #[test]
-// fn cpus() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     for cpu in fdt.cpus() {
-//         cpu.ids().all().for_each(|n| std::println!("{:?}", n));
-//     }
-// }
+#[test]
+fn stdout() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let stdout = fdt.root().chosen().stdout().unwrap();
+    assert!(stdout.node.name() == NodeName { name: "uart", unit_address: Some("10000000") });
+    assert!(stdout.params == Some("115200"));
+}
 
-// #[test]
-// fn invalid_node() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     assert!(fdt.find_node("this/is/an invalid node///////////").is_none());
-// }
+#[test]
+fn stdin() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let stdin = fdt.root().chosen().stdin().unwrap();
+    assert!(stdin.node.name() == NodeName { name: "uart", unit_address: Some("10000000") });
+    assert!(stdin.params.is_none());
+}
 
-// #[test]
-// fn aliases() {
-//     let fdt = Fdt::new(SIFIVE.as_slice()).unwrap();
-//     let aliases = fdt.aliases().unwrap();
-//     for (_, node_path) in aliases.all() {
-//         assert!(fdt.find_node(node_path).is_some(), "path: {:?}", node_path);
-//     }
-// }
+#[test]
+fn node_property_str_value() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let cpu0 = fdt.find_node("/cpus/cpu@0").unwrap();
+    assert_eq!(cpu0.properties().find("riscv,isa").unwrap().as_value::<&str>().unwrap(), "rv64imafdcsu");
+}
 
-// #[test]
-// fn stdout() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let stdout = fdt.chosen().stdout().unwrap();
-//     assert!(stdout.node().name == "uart@10000000");
-//     assert!(stdout.params() == Some("115200"));
-// }
-
-// #[test]
-// fn stdin() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let stdin = fdt.chosen().stdin().unwrap();
-//     assert!(stdin.node().name == "uart@10000000");
-//     assert!(stdin.params().is_none());
-// }
-
-// #[test]
-// fn node_property_str_value() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let cpu0 = fdt.find_node("/cpus/cpu@0").unwrap();
-//     assert_eq!(cpu0.property("riscv,isa").unwrap().as_str().unwrap(), "rv64imafdcsu");
-// }
-
-// #[test]
-// fn model_value() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     assert_eq!(fdt.root().model(), "riscv-virtio,qemu");
-// }
+#[test]
+fn model_value() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    assert_eq!(fdt.root().model(), "riscv-virtio,qemu");
+}
 
 #[test]
 fn memory_node() {
@@ -441,10 +421,15 @@ fn memory_node() {
     assert_eq!(root.memory().reg().iter::<u64, u64>().count(), 1);
 }
 
-// #[test]
-// fn interrupt_cells() {
-//     let fdt = Fdt::new(TEST.as_slice()).unwrap();
-//     let uart = fdt.find_node("/soc/uart").unwrap();
-//     std::println!("{:?}", uart.parent_interrupt_cells());
-//     assert_eq!(uart.interrupts().unwrap().collect::<std::vec::Vec<_>>(), std::vec![0xA]);
-// }
+#[test]
+fn interrupt_cells() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let uart = fdt.find_node("/soc/uart").unwrap();
+    std::println!("{:?}", uart.parent().unwrap().property::<InterruptCells>());
+    let interrupts = match uart.property::<Interrupts>().unwrap() {
+        Interrupts::Legacy(legacy) => legacy,
+        _ => unreachable!(),
+    };
+
+    assert_eq!(interrupts.iter::<u32>().collect::<Result<std::vec::Vec<_>, _>>().unwrap(), &[0xA]);
+}

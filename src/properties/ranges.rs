@@ -118,6 +118,7 @@ impl<'a, CAddr: CellCollector, PAddr: CellCollector, Len: CellCollector> Iterato
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Range<CAddr, PAddr, Len> {
     pub child_bus_address: CAddr,
     pub parent_bus_address: PAddr,

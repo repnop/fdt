@@ -1,4 +1,4 @@
-use super::{AsNode, FallibleNode, Node};
+use super::{AsNode, FallibleNode, FallibleParser, Node, NodePropertiesIter};
 use crate::parsing::{NoPanic, ParserWithMode};
 
 /// [Devicetree 3.3. `/aliases`
@@ -56,10 +56,34 @@ impl<'a, P: ParserWithMode<'a>> Aliases<'a, P> {
             self.node.make_root::<P::Parser>()?.find_node(path).map(|r| r.map(|n| n.alt()))
         }))
     }
+
+    /// Create an iterator over all of the available aliases
+    pub fn iter(self) -> P::Output<AllAliasesIter<'a, P>> {
+        P::to_output(crate::tryblock!({ Ok(AllAliasesIter { properties: self.node.properties()?.iter() }) }))
+    }
 }
 
 impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for Aliases<'a, P> {
     fn as_node(&self) -> Node<'a, P> {
         self.node.alt()
+    }
+}
+
+pub struct AllAliasesIter<'a, P: ParserWithMode<'a>> {
+    properties: NodePropertiesIter<'a, FallibleParser<'a, P>>,
+}
+
+impl<'a, P> Iterator for AllAliasesIter<'a, P>
+where
+    P: ParserWithMode<'a>,
+{
+    type Item = P::Output<(&'a str, &'a str)>;
+    #[track_caller]
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(P::to_output(match self.properties.next() {
+            Some(Ok(prop)) => crate::tryblock!({ Ok((prop.name(), prop.as_value::<&'a str>()?)) }),
+            Some(Err(e)) => Err(e),
+            None => return None,
+        }))
     }
 }
