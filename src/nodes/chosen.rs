@@ -50,7 +50,7 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
     /// [`Chosen::stdout_path`].
     #[allow(clippy::type_complexity)]
     #[track_caller]
-    pub fn stdout(self) -> P::Output<Option<(Node<'a, P>, Option<&'a str>)>> {
+    pub fn stdout(self) -> P::Output<Option<Stdout<'a, P>>> {
         P::to_output(crate::tryblock!({
             let this: Chosen<'a, FallibleParser<'a, P>> = Chosen { node: self.node };
             let Some(stdout) = this.stdout_path()? else { return Ok(None) };
@@ -62,11 +62,11 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
             };
 
             match node {
-                Some(node) => Ok(Some((node.alt(), stdout.params()))),
+                Some(node) => Ok(Some(Stdout { node: node.alt(), params: stdout.params() })),
                 None => {
                     let Some(aliases) = root.aliases()? else { return Ok(None) };
                     match aliases.resolve(stdout.path())? {
-                        Some(node) => Ok(Some((node.alt(), stdout.params()))),
+                        Some(node) => Ok(Some(Stdout { node: node.alt(), params: stdout.params() })),
                         None => Ok(None),
                     }
                 }
@@ -112,7 +112,7 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
     /// [`Chosen::stdin_path`].
     #[allow(clippy::type_complexity)]
     #[track_caller]
-    pub fn stdin(self) -> P::Output<Option<(Node<'a, P>, Option<&'a str>)>> {
+    pub fn stdin(self) -> P::Output<Option<Stdin<'a, P>>> {
         P::to_output(crate::tryblock!({
             let this: Chosen<'a, FallibleParser<'a, P>> = Chosen { node: self.node };
             let Some(stdin) = this.stdin_path()? else { return Ok(None) };
@@ -124,11 +124,11 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
             };
 
             match node {
-                Some(node) => Ok(Some((node.alt(), stdin.params()))),
+                Some(node) => Ok(Some(Stdin { node: node.alt(), params: stdin.params() })),
                 None => {
                     let Some(aliases) = root.aliases()? else { return Ok(None) };
                     match aliases.resolve(stdin.path())? {
-                        Some(node) => Ok(Some((node.alt(), stdin.params()))),
+                        Some(node) => Ok(Some(Stdin { node: node.alt(), params: stdin.params() })),
                         None => Ok(None),
                     }
                 }
@@ -172,6 +172,42 @@ impl<'a, P: ParserWithMode<'a>> Clone for Chosen<'a, P> {
 
 impl<'a, P: ParserWithMode<'a>> Copy for Chosen<'a, P> {}
 
+/// See [`Chosen::stdin`].
+pub struct Stdin<'a, P: ParserWithMode<'a>> {
+    pub node: Node<'a, P>,
+    pub params: Option<&'a str>,
+}
+
+impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Stdin<'a, P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut debug_struct = f.debug_struct("Stdin");
+        let debug_struct = match self.node.fallible().name() {
+            Ok(name) => debug_struct.field("node", &name),
+            Err(e) => debug_struct.field("node", &Err::<(), _>(e)),
+        };
+
+        debug_struct.field("params", &self.params).finish()
+    }
+}
+
+/// See [`Chosen::stdout`].
+pub struct Stdout<'a, P: ParserWithMode<'a>> {
+    pub node: Node<'a, P>,
+    pub params: Option<&'a str>,
+}
+
+impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Stdout<'a, P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut debug_struct = f.debug_struct("Stdin");
+        let debug_struct = match self.node.fallible().name() {
+            Ok(name) => debug_struct.field("node", &name),
+            Err(e) => debug_struct.field("node", &Err::<(), _>(e)),
+        };
+
+        debug_struct.field("params", &self.params).finish()
+    }
+}
+
 pub struct StdInOutPath<'a> {
     path: &'a str,
     params: Option<&'a str>,
@@ -202,8 +238,8 @@ impl<'a> StdInOutPath<'a> {
     /// ```rust
     /// # let fdt = fdt::Fdt::new_unaligned(include_bytes!("../../dtb/test.dtb")).unwrap();
     /// # let chosen = fdt.root().chosen();
-    /// let stdout = chosen.stdout().unwrap();
-    /// let stdin = chosen.stdin().unwrap();
+    /// let stdout = chosen.stdout_path().unwrap();
+    /// let stdin = chosen.stdin_path().unwrap();
     ///
     /// assert_eq!((stdout.path(), stdout.params()), ("/soc/uart@10000000", Some("115200")));
     /// assert_eq!((stdin.path(), stdin.params()), ("/soc/uart@10000000", None));

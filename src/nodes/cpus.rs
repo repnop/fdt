@@ -64,7 +64,7 @@ impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
         }))
     }
 
-    pub fn cpus(&self) -> P::Output<CpusIter<'a, P>> {
+    pub fn iter(&self) -> P::Output<CpusIter<'a, P>> {
         P::to_output(crate::tryblock!({ Ok(CpusIter { children: self.node.children()?.iter() }) }))
     }
 }
@@ -147,6 +147,7 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
     /// representation of PIR values if desired.
     #[inline]
     #[track_caller]
+    #[doc(alias = "ids")]
     pub fn reg<C: CellCollector>(self) -> P::Output<CpuIds<'a, C>> {
         P::to_output(crate::tryblock!({
             let Some(reg) = self.node.properties()?.find("reg")? else {

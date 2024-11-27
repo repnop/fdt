@@ -58,7 +58,17 @@ impl<
             return Err(CollectCellsError);
         }
 
-        self.value = self.value.shl(32).bitor(Int::from(component));
+        // HACK: shifting a `u32` by `32` bits at all, regardless of the value,
+        // panics, so for `u32`s, don't shift at all since the next call will
+        // fail above.
+        let shl = const {
+            match core::mem::size_of::<Int>() {
+                0..=4 => 0,
+                _ => 32,
+            }
+        };
+
+        self.value = self.value.shl(shl).bitor(Int::from(component));
 
         Ok(())
     }

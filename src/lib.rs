@@ -27,7 +27,7 @@
 //!
 //!     println!("This is a devicetree representation of a {}", root.model());
 //!     println!("...which is compatible with at least: {}", root.compatible().first());
-//!     println!("...and has {} CPU(s)", root.cpus().cpus().count());
+//!     println!("...and has {} CPU(s)", root.cpus().iter().count());
 //!     println!(
 //!         "...and has at least one memory location at: {:#X}\n",
 //!         root.memory().reg().iter::<u64, u64>().next().unwrap().unwrap().address
@@ -38,7 +38,7 @@
 //!         println!("The bootargs are: {:?}", bootargs);
 //!     }
 //!
-//!     if let Some(stdout) = chosen.stdout() {
+//!     if let Some(stdout) = chosen.stdout_path() {
 //!         println!("It would write stdout to: {}", stdout.path());
 //!     }
 //!
@@ -68,7 +68,10 @@ mod pretty_print;
 pub mod properties;
 mod util;
 
-use nodes::root::Root;
+use nodes::{
+    root::{AllCompatibleIter, AllNodesIter, AllNodesWithNameIter, Root},
+    FallibleParser, Node,
+};
 use parsing::{
     aligned::AlignedParser, unaligned::UnalignedParser, NoPanic, Panic, ParseError, Parser, ParserWithMode,
     StringsBlock, StructsBlock,
@@ -319,6 +322,12 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, NoPanic)> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Fdt<'a, P> {
+    #[inline(always)]
+    fn fallible_root(&self) -> Result<Root<'a, FallibleParser<'a, P>>, FdtError> {
+        let mut parser = FallibleParser::<'a, P>::new(self.structs.0, self.strings, self.structs);
+        Ok(Root { node: parser.parse_root()? })
+    }
+
     /// Return the root (`/`) node, which is always available
     pub fn root(&self) -> P::Output<Root<'a, P>> {
         let mut parser = P::new(self.structs.0, self.strings, self.structs);
@@ -340,6 +349,57 @@ impl<'a, P: ParserWithMode<'a>> Fdt<'a, P> {
 
             cstr.to_str().ok()
         })
+    }
+
+    /// Convenience wrapper around [`Root::find_all_nodes_with_name`]. Returns
+    /// an iterator that yields every node with the name that matches `name` in
+    /// depth-first order.
+    #[track_caller]
+    pub fn find_all_nodes_with_name<'b>(&self, name: &'b str) -> P::Output<AllNodesWithNameIter<'a, 'b, P>> {
+        P::to_output(self.fallible_root().and_then(|root| {
+            root.find_all_nodes_with_name(name).map(|i| AllNodesWithNameIter { iter: i.iter, name: i.name })
+        }))
+    }
+
+    /// Convenience wrapper around [`Root::find_node_by_name`]. Attempt to find
+    /// a node with the given name, returning the first node with a name that
+    /// matches `name` in depth-first order.
+    #[track_caller]
+    pub fn find_node_by_name(&self, name: &str) -> P::Output<Option<Node<'a, P>>> {
+        P::to_output(self.fallible_root().and_then(|root| Ok(root.find_node_by_name(name)?.map(|n| n.alt()))))
+    }
+
+    /// Convenience wrapper around [`Root::find_node`]. Attempt to find a node
+    /// with the given path (with an optional unit address, defaulting to the
+    /// first matching name if omitted). If you only have the node name but not
+    /// the path, use [`Root::find_node_by_name`] instead.
+    #[track_caller]
+    pub fn find_node(&self, path: &str) -> P::Output<Option<Node<'a, P>>> {
+        P::to_output(self.fallible_root().and_then(|root| Ok(root.find_node(path)?.map(|n| n.alt()))))
+    }
+
+    /// Convenience wrapper around [`Root::all_compatible`]. Returns an iterator over
+    /// every node within the devicetree which is compatible with at least one
+    /// of the compatible strings contained within `with`.
+    #[track_caller]
+    pub fn all_compatible<'b>(&self, with: &'b [&str]) -> P::Output<AllCompatibleIter<'a, 'b, P>> {
+        P::to_output(
+            self.fallible_root()
+                .and_then(|root| root.all_compatible(with).map(|i| AllCompatibleIter { iter: i.iter, with: i.with })),
+        )
+    }
+
+    /// Convenience wrapper around [`Root::all_nodes`]. Returns an iterator over
+    /// each node in the tree, depth-first, along with its depth in the tree.
+    #[track_caller]
+    pub fn all_nodes(&self) -> P::Output<AllNodesIter<'a, P>> {
+        P::to_output(self.fallible_root().and_then(|root| {
+            root.all_nodes().map(|i| AllNodesIter {
+                parser: P::new(i.parser.data(), i.parser.strings(), i.parser.structs()),
+                parent_index: i.parent_index,
+                parents: i.parents,
+            })
+        }))
     }
 
     /// Total size of the devicetree in bytes
