@@ -271,45 +271,30 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
 
         let starting_data = self.data();
 
-        match core::mem::size_of::<Self::Granularity>() {
-            1 => {
-                let byte_data = self.byte_data();
-                match byte_data.get(byte_data.len() - 4..).map(<[u8; 4]>::try_from) {
-                    Some(Ok(data @ [_, _, _, _])) => match BigEndianToken(BigEndianU32(u32::from_ne_bytes(data))) {
-                        BigEndianToken::END => {}
-                        _ => return Err(FdtError::ParseError(ParseError::UnexpectedToken)),
-                    },
-                    _ => return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)),
-                }
-
-                Ok(Node {
-                    this: RawNode::new(&starting_data[..starting_data.len() - 4]),
-                    parent: None,
-                    strings: self.strings(),
-                    structs: self.structs(),
-                    _mode: core::marker::PhantomData,
-                })
-            }
-            4 => {
-                let byte_data = self.byte_data();
-                match byte_data.get(byte_data.len() - 4..).map(<[u8; 4]>::try_from) {
-                    Some(Ok(data @ [_, _, _, _])) => match BigEndianToken(BigEndianU32(u32::from_ne_bytes(data))) {
-                        BigEndianToken::END => {}
-                        _ => return Err(FdtError::ParseError(ParseError::UnexpectedToken)),
-                    },
-                    _ => return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)),
-                }
-
-                Ok(Node {
-                    this: RawNode::new(&starting_data[..starting_data.len() - 1]),
-                    parent: None,
-                    strings: self.strings(),
-                    structs: self.structs(),
-                    _mode: core::marker::PhantomData,
-                })
-            }
-            _ => unreachable!(),
+        let byte_data = self.byte_data();
+        match byte_data.get(byte_data.len() - 4..).map(<[u8; 4]>::try_from) {
+            Some(Ok(data @ [_, _, _, _])) => match BigEndianToken(BigEndianU32(u32::from_ne_bytes(data))) {
+                BigEndianToken::END => {}
+                _ => return Err(FdtError::ParseError(ParseError::UnexpectedToken)),
+            },
+            _ => return Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)),
         }
+
+        let granularity_offset = const {
+            match core::mem::size_of::<Self::Granularity>() {
+                1 => 4,
+                4 => 1,
+                _ => unreachable!(),
+            }
+        };
+
+        Ok(Node {
+            this: RawNode::new(&starting_data[..starting_data.len() - granularity_offset]),
+            parent: None,
+            strings: self.strings(),
+            structs: self.structs(),
+            _mode: core::marker::PhantomData,
+        })
     }
 
     fn parse_node(&mut self, parent: Option<&'a RawNode<Self::Granularity>>) -> Result<Node<'a, Self>, FdtError>
@@ -339,6 +324,7 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
                     0 => break,
                     _ => {
                         depth -= 1;
+                        let _ = self.advance_token();
                         continue;
                     }
                 },
