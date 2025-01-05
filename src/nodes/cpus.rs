@@ -65,7 +65,9 @@ impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
     }
 
     pub fn iter(&self) -> P::Output<CpusIter<'a, P>> {
-        P::to_output(crate::tryblock!({ Ok(CpusIter { children: self.node.children()?.iter() }) }))
+        P::to_output(crate::tryblock!({
+            Ok(CpusIter { children: self.node.children()?.iter().filter(filter_cpus::<P>) })
+        }))
     }
 }
 
@@ -75,8 +77,20 @@ impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for Cpus<'a, P> {
     }
 }
 
+fn filter_cpus<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>, FdtError>) -> bool {
+    match node {
+        Ok(node) => match node.name().map(|n| n.name) {
+            Ok("cpu") => true,
+            _ => false,
+        },
+        _ => true,
+    }
+}
 pub struct CpusIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
-    children: NodeChildrenIter<'a, (P::Parser, NoPanic)>,
+    children: core::iter::Filter<
+        NodeChildrenIter<'a, (P::Parser, NoPanic)>,
+        fn(&Result<FallibleNode<'a, P>, FdtError>) -> bool,
+    >,
 }
 
 impl<'a, P: ParserWithMode<'a>> Iterator for CpusIter<'a, P> {
