@@ -1,7 +1,7 @@
 use super::{cells::CellSizes, Property};
 use crate::{
     cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
-    nodes::{FallibleNode, FallibleRoot},
+    helpers::{FallibleNode, FallibleRoot},
     parsing::ParserWithMode,
     FdtError,
 };

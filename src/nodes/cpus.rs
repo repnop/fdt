@@ -5,6 +5,7 @@ use crate::{
     properties::{
         cells::{AddressCells, CellSizes},
         values::StringList,
+        PHandle,
     },
     FdtError,
 };
@@ -64,6 +65,17 @@ impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
         }))
     }
 
+    /// Returns the (optional) `cpu-map` child node, which describes the system
+    /// socket and CPU topology. See [`CpuTopology`] for more details.
+    pub fn topology(&self) -> P::Output<Option<CpuTopology<'a, P>>> {
+        P::to_output(crate::tryblock!({
+            match self.node.children()?.find("cpu-map")? {
+                Some(node) => Ok(Some(CpuTopology { node })),
+                None => Ok(None),
+            }
+        }))
+    }
+
     pub fn iter(&self) -> P::Output<CpusIter<'a, P>> {
         P::to_output(crate::tryblock!({
             Ok(CpusIter { children: self.node.children()?.iter().filter(filter_cpus::<P>) })
@@ -86,6 +98,7 @@ fn filter_cpus<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>, Fdt
         _ => true,
     }
 }
+
 pub struct CpusIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     children: core::iter::Filter<
         NodeChildrenIter<'a, (P::Parser, NoPanic)>,
@@ -640,5 +653,312 @@ impl<'a, C: CellCollector> Iterator for CpuIdsIter<'a, C> {
         }
 
         Some(Ok(C::map(collector.finish())))
+    }
+}
+
+/// [Linux Kernel Devicetree Bindings - CPU topology binding
+/// description](https://www.kernel.org/doc/Documentation/devicetree/bindings/cpu/cpu-topology.txt)
+///
+/// In a SMP system, the hierarchy of CPUs is defined through three entities
+/// that are used to describe the layout of physical CPUs in the system:
+///
+/// - socket
+/// - cluster
+/// - core
+/// - thread
+///
+/// The bottom hierarchy level sits at core or thread level depending on whether
+/// symmetric multi-threading (SMT) is supported or not.
+///
+/// For instance in a system where CPUs support SMT, "cpu" nodes represent all
+/// threads existing in the system and map to the hierarchy level "thread"
+/// above. In systems where SMT is not supported "cpu" nodes represent all cores
+/// present in the system and map to the hierarchy level "core" above.
+///
+/// CPU topology bindings allow one to associate cpu nodes with hierarchical
+/// groups corresponding to the system hierarchy; syntactically they are defined
+/// as device tree nodes.
+///
+/// Currently, only ARM/RISC-V intend to use this cpu topology binding but it
+/// may be used for any other architecture as well.
+///
+/// The cpu nodes, as per bindings defined in [4][4], represent the devices that
+/// correspond to physical CPUs and are to be mapped to the hierarchy levels.
+///
+/// A topology description containing phandles to cpu nodes that are not
+/// compliant with bindings standardized in [4][4] is therefore considered invalid.
+///
+/// [4]: https://www.devicetree.org/specifications/
+pub struct CpuTopology<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    node: FallibleNode<'a, P>,
+}
+
+impl<'a, P: ParserWithMode<'a>> CpuTopology<'a, P> {
+    /// Returns an iterator over all top-level [`CpuSocket`] children. Sockets are
+    /// optional for single-socket systems, so this may not return any sockets.
+    /// If that is the case, iterate over the clusters instead.
+    pub fn sockets(&self) -> P::Output<CpuSocketIter<'a, P>> {
+        P::to_output(crate::tryblock!({
+            Ok(CpuSocketIter { children: self.node.children()?.iter().filter(filter_sockets::<P>) })
+        }))
+    }
+
+    /// Returns an iterator over all top-level [`CpuCluster`] children. Clusters may be
+    /// contained underneath socket nodes, so if the iterator is empty, iterate
+    /// over the sockets instead.
+    pub fn clusters(&self) -> P::Output<CpuClusterIter<'a, P>> {
+        P::to_output(crate::tryblock!({
+            Ok(CpuClusterIter { children: self.node.children()?.iter().filter(filter_clusters::<P>) })
+        }))
+    }
+}
+
+fn filter_sockets<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>, FdtError>) -> bool {
+    match node {
+        Ok(node) => match node.name().map(|n| n.name) {
+            Ok(n) if n.starts_with("socket") => true,
+            _ => false,
+        },
+        _ => true,
+    }
+}
+
+pub struct CpuSocketIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    children: core::iter::Filter<
+        NodeChildrenIter<'a, (P::Parser, NoPanic)>,
+        fn(&Result<FallibleNode<'a, P>, FdtError>) -> bool,
+    >,
+}
+
+impl<'a, P: ParserWithMode<'a>> Iterator for CpuSocketIter<'a, P> {
+    type Item = P::Output<CpuSocket<'a, P>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.children.next()? {
+            Ok(node) => Some(P::to_output(Ok(CpuSocket { node }))),
+            Err(e) => Some(P::to_output(Err(e))),
+        }
+    }
+}
+
+fn filter_clusters<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>, FdtError>) -> bool {
+    match node {
+        Ok(node) => match node.name().map(|n| n.name) {
+            Ok(n) if n.starts_with("cluster") => true,
+            _ => false,
+        },
+        _ => true,
+    }
+}
+
+pub struct CpuClusterIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    children: core::iter::Filter<
+        NodeChildrenIter<'a, (P::Parser, NoPanic)>,
+        fn(&Result<FallibleNode<'a, P>, FdtError>) -> bool,
+    >,
+}
+
+impl<'a, P: ParserWithMode<'a>> Iterator for CpuClusterIter<'a, P> {
+    type Item = P::Output<CpuCluster<'a, P>>;
+
+    #[track_caller]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.children.next()? {
+            Ok(node) => Some(P::to_output(Ok(CpuCluster { node }))),
+            Err(e) => Some(P::to_output(Err(e))),
+        }
+    }
+}
+
+/// A physical CPU socket.
+pub struct CpuSocket<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    node: FallibleNode<'a, P>,
+}
+
+impl<'a, P: ParserWithMode<'a>> CpuSocket<'a, P> {
+    /// Returns the socket number for this particular socket, e.g. the `0` in
+    /// `socket0`.
+    pub fn id(&self) -> P::Output<usize> {
+        P::to_output(crate::tryblock!({
+            match self.node.name()?.name.trim_start_matches("socket").parse() {
+                Ok(id) => Ok(id),
+                Err(_) => Err(FdtError::InvalidNodeName),
+            }
+        }))
+    }
+
+    /// Returns an iterator over the [`CpuCluster`]s contained by this socket.
+    pub fn clusters(&self) -> P::Output<CpuClusterIter<'a, P>> {
+        P::to_output(crate::tryblock!({
+            Ok(CpuClusterIter { children: self.node.children()?.iter().filter(filter_clusters::<P>) })
+        }))
+    }
+}
+
+/// A CPU cluster that is made up of either one or more clusters, or one or more [`CpuCore`]s.
+pub struct CpuCluster<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    node: FallibleNode<'a, P>,
+}
+
+impl<'a, P: ParserWithMode<'a>> CpuCluster<'a, P> {
+    /// Returns the cluster number for this particular cluster, e.g. the `0` in
+    /// `cluster0`.
+    pub fn id(&self) -> P::Output<usize> {
+        P::to_output(crate::tryblock!({
+            match self.node.name()?.name.trim_start_matches("cluster").parse() {
+                Ok(id) => Ok(id),
+                Err(_) => Err(FdtError::InvalidNodeName),
+            }
+        }))
+    }
+
+    /// Returns an iterator over the [`CpuCore`]s contained by this cluster.
+    pub fn cores(&self) -> P::Output<CpuCoreIter<'a, P>> {
+        P::to_output(crate::tryblock!({
+            Ok(CpuCoreIter { children: self.node.children()?.iter().filter(filter_cores::<P>) })
+        }))
+    }
+}
+
+fn filter_cores<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>, FdtError>) -> bool {
+    match node {
+        Ok(node) => match node.name().map(|n| n.name) {
+            Ok(n) if n.starts_with("core") => true,
+            _ => false,
+        },
+        _ => true,
+    }
+}
+
+pub struct CpuCoreIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    children: core::iter::Filter<
+        NodeChildrenIter<'a, (P::Parser, NoPanic)>,
+        fn(&Result<FallibleNode<'a, P>, FdtError>) -> bool,
+    >,
+}
+
+impl<'a, P: ParserWithMode<'a>> Iterator for CpuCoreIter<'a, P> {
+    type Item = P::Output<CpuCore<'a, P>>;
+
+    #[track_caller]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.children.next()? {
+            Ok(node) => Some(P::to_output(Ok(CpuCore { node }))),
+            Err(e) => Some(P::to_output(Err(e))),
+        }
+    }
+}
+
+/// A physical CPU core, which may be described by a `cpu` node or a set of
+/// threads if symmetric multithreading (SMT) is enabled.
+pub struct CpuCore<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    node: FallibleNode<'a, P>,
+}
+
+impl<'a, P: ParserWithMode<'a>> CpuCore<'a, P> {
+    /// Returns the core number for this particular core, e.g. the `0` in
+    /// `core0`.
+    pub fn id(&self) -> P::Output<usize> {
+        P::to_output(crate::tryblock!({
+            match self.node.name()?.name.trim_start_matches("core").parse() {
+                Ok(id) => Ok(id),
+                Err(_) => Err(FdtError::InvalidNodeName),
+            }
+        }))
+    }
+
+    /// If this core is described by a single physical CPU core (that is, if SMT
+    /// is not enabled), return the `/cpus/cpu@N` node that represents this
+    /// code. See [`Cpu`] for more details. If this returns [`None`], the core is
+    /// represented by one or more [`CpuThread`]s.
+    pub fn cpu(&self) -> P::Output<Option<Cpu<'a, P>>> {
+        P::to_output(crate::tryblock!({
+            let phandle = match self.node.properties()?.find("cpu")? {
+                Some(property) => PHandle::new(property.as_value::<u32>()?),
+                None => return Ok(None),
+            };
+
+            Ok(Some(Cpu {
+                node: self
+                    .node
+                    .make_root()?
+                    .resolve_phandle(phandle)?
+                    .ok_or(FdtError::MissingPHandleNode(phandle.as_u32()))?,
+            }))
+        }))
+    }
+
+    /// Returns an iterator over all threads described by this CPU core. If this
+    /// iterator does not return any [`CpuThread`]s, SMT is not enabled and the
+    /// core is described by a single [`Cpu`] which can be retreived by
+    /// [`CpuCore::cpu`].
+    pub fn threads(&self) -> P::Output<CpuThreadIter<'a, P>> {
+        P::to_output(crate::tryblock!({
+            Ok(CpuThreadIter { children: self.node.children()?.iter().filter(filter_threads::<P>) })
+        }))
+    }
+}
+
+fn filter_threads<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>, FdtError>) -> bool {
+    match node {
+        Ok(node) => match node.name().map(|n| n.name) {
+            Ok(n) if n.starts_with("thread") => true,
+            _ => false,
+        },
+        _ => true,
+    }
+}
+
+pub struct CpuThreadIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    children: core::iter::Filter<
+        NodeChildrenIter<'a, (P::Parser, NoPanic)>,
+        fn(&Result<FallibleNode<'a, P>, FdtError>) -> bool,
+    >,
+}
+
+impl<'a, P: ParserWithMode<'a>> Iterator for CpuThreadIter<'a, P> {
+    type Item = P::Output<CpuThread<'a, P>>;
+
+    #[track_caller]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.children.next()? {
+            Ok(node) => Some(P::to_output(Ok(CpuThread { node }))),
+            Err(e) => Some(P::to_output(Err(e))),
+        }
+    }
+}
+
+/// A logical CPU thread of execution. A single [`CpuCore`] may contain multiple
+/// threads if symmetric multithreading is enabled.
+pub struct CpuThread<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    node: FallibleNode<'a, P>,
+}
+
+impl<'a, P: ParserWithMode<'a>> CpuThread<'a, P> {
+    /// Returns the thread number for this particular thread, e.g. the `0` in
+    /// `thread0`.
+    pub fn id(&self) -> P::Output<usize> {
+        P::to_output(crate::tryblock!({
+            match self.node.name()?.name.trim_start_matches("socket").parse() {
+                Ok(id) => Ok(id),
+                Err(_) => Err(FdtError::InvalidNodeName),
+            }
+        }))
+    }
+
+    /// Returns the [`Cpu`] that is represented by this thread.
+    pub fn cpu(&self) -> P::Output<Cpu<'a, P>> {
+        P::to_output(crate::tryblock!({
+            let phandle = match self.node.properties()?.find("cpu")? {
+                Some(property) => PHandle::new(property.as_value::<u32>()?),
+                None => return Err(FdtError::MissingRequiredProperty("cpu")),
+            };
+
+            self.node
+                .make_root()?
+                .resolve_phandle(phandle)?
+                .map(|node| Cpu { node })
+                .ok_or(FdtError::MissingPHandleNode(phandle.as_u32()))
+        }))
     }
 }

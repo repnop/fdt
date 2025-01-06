@@ -1,5 +1,8 @@
-use super::{AsNode, FallibleNode, FallibleParser, Node, NodePropertiesIter};
-use crate::parsing::{NoPanic, ParserWithMode};
+use super::{AsNode, Node, NodePropertiesIter};
+use crate::{
+    helpers::{FallibleNode, FallibleParser},
+    parsing::{NoPanic, ParserWithMode},
+};
 
 /// [Devicetree 3.3. `/aliases`
 /// node](https://devicetree-specification.readthedocs.io/en/latest/chapter3-devicenodes.html#aliases-node)

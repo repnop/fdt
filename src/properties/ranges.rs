@@ -4,8 +4,8 @@ use super::{
 };
 use crate::{
     cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
-    nodes::{root::Root, FallibleNode},
-    parsing::{NoPanic, ParserWithMode},
+    helpers::{FallibleNode, FallibleRoot},
+    parsing::ParserWithMode,
     FdtError,
 };
 
@@ -37,10 +37,7 @@ impl<'a> Ranges<'a> {
 }
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Ranges<'a> {
-    fn parse(
-        node: FallibleNode<'a, P>,
-        _: Root<'a, (<P as ParserWithMode<'a>>::Parser, NoPanic)>,
-    ) -> Result<Option<Self>, FdtError> {
+    fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         let Some(ranges) = node.properties()?.find("ranges")? else {
             return Ok(None);
         };

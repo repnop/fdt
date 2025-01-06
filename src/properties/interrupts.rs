@@ -3,7 +3,8 @@ pub mod pci;
 use super::{cells::AddressCells, PHandle, Property};
 use crate::{
     cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
-    nodes::{root::Root, FallibleNode, FallibleRoot, Node},
+    helpers::{FallibleNode, FallibleRoot},
+    nodes::{root::Root, Node},
     parsing::{aligned::AlignedParser, BigEndianU32, NoPanic, Panic, ParserWithMode},
     FdtError,
 };
@@ -180,7 +181,7 @@ impl<'a, P: ParserWithMode<'a>> Iterator for ExtendedInterruptsIter<'a, P> {
         let res = crate::tryblock!({
             let root: FallibleRoot<'a, P> = Root { node: self.root.node.fallible() };
             let Some(interrupt_parent) = root.resolve_phandle(phandle)? else {
-                return Err(FdtError::PHandleNotFound(phandle.0.to_ne()));
+                return Err(FdtError::MissingPHandleNode(phandle.0.to_ne()));
             };
 
             let Some(interrupt_cells) = interrupt_parent.property::<InterruptCells>()? else {
@@ -369,7 +370,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptParent<'a, P> {
         match node.properties()?.find("interrupt-parent")? {
             Some(phandle) => match root.resolve_phandle(PHandle(phandle.as_value()?))? {
                 Some(parent) => Ok(Some(Self(parent.alt()))),
-                None => Err(FdtError::PHandleNotFound(phandle.as_value()?)),
+                None => Err(FdtError::MissingPHandleNode(phandle.as_value()?)),
             },
             None => Ok(node.parent().map(|n| Self(n.alt()))),
         }
@@ -626,7 +627,7 @@ impl<
             let phandle = u32::from_ne_bytes(interrupt_parent.try_into().unwrap());
             let interrupt_parent = root
                 .resolve_phandle(PHandle(BigEndianU32::from_be(phandle)))?
-                .ok_or(FdtError::PHandleNotFound(phandle.swap_bytes()))?;
+                .ok_or(FdtError::MissingPHandleNode(phandle.swap_bytes()))?;
 
             let parent_address_cells = interrupt_parent
                 .property::<AddressCells>()?

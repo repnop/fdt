@@ -2,8 +2,9 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file, You can
 // obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{FallibleNode, FallibleParser, FallibleRoot, Node};
+use super::{FallibleNode, Node};
 use crate::{
+    helpers::{FallibleParser, FallibleRoot},
     parsing::{aligned::AlignedParser, Panic, ParseError, ParserWithMode},
     FdtError,
 };
