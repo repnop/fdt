@@ -4,7 +4,8 @@
 
 extern crate std;
 
-use nodes::NodeName;
+use crate::*;
+use nodes::{AsNode, NodeName};
 use properties::{
     cells::CellSizes,
     interrupts::{
@@ -15,9 +16,6 @@ use properties::{
     reg::{RawRegEntry, RegEntry},
     Compatible,
 };
-
-// use crate::{node::RawReg, *};
-use crate::*;
 
 struct AlignArrayUp<const N: usize>([u8; N]);
 
@@ -366,6 +364,14 @@ fn issue_4() {
 fn cpus() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
     for cpu in fdt.root().cpus().iter() {
+        std::println!(
+            "{:?}",
+            cpu.as_node()
+                .properties()
+                .iter()
+                .map(|p| std::format!("{}={:?}", p.name(), p.value()))
+                .collect::<std::vec::Vec<_>>()
+        );
         cpu.reg::<u32>().iter().for_each(|n| std::println!("{:?}", n));
     }
 }
@@ -432,4 +438,31 @@ fn interrupt_cells() {
     };
 
     assert_eq!(interrupts.iter::<u32>().collect::<Result<std::vec::Vec<_>, _>>().unwrap(), &[0xA]);
+}
+
+#[test]
+fn cpu_map() {
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let topology = fdt.root().cpus().topology().unwrap();
+
+    assert_eq!(topology.sockets().count(), 0);
+
+    assert_eq!(topology.clusters().next().unwrap().id(), 0);
+    assert_eq!(topology.clusters().next().unwrap().cores().next().unwrap().id(), 0);
+    assert_eq!(
+        topology
+            .clusters()
+            .next()
+            .unwrap()
+            .cores()
+            .next()
+            .unwrap()
+            .cpu()
+            .unwrap()
+            .as_node()
+            .raw_property("riscv,isa")
+            .unwrap()
+            .value(),
+        b"rv64imafdcsu\0"
+    );
 }

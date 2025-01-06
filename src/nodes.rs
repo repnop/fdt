@@ -5,6 +5,7 @@ pub mod memory;
 pub mod root;
 
 use crate::{
+    helpers::FallibleNode,
     parsing::{
         aligned::AlignedParser, BigEndianToken, NoPanic, Panic, PanicMode, ParseError, Parser, ParserWithMode,
         StringsBlock, StructsBlock,
@@ -94,10 +95,6 @@ impl core::fmt::Display for NodeName<'_> {
         }
     }
 }
-
-pub type FallibleParser<'a, P> = (<P as ParserWithMode<'a>>::Parser, NoPanic);
-pub type FallibleNode<'a, P> = Node<'a, FallibleParser<'a, P>>;
-pub type FallibleRoot<'a, P> = Root<'a, FallibleParser<'a, P>>;
 
 /// A generic devicetree node.
 pub struct Node<'a, P: ParserWithMode<'a>> {

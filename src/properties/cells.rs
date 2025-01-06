@@ -1,6 +1,6 @@
 use super::Property;
 use crate::{
-    nodes::{FallibleNode, FallibleRoot},
+    helpers::{FallibleNode, FallibleRoot},
     parsing::{unaligned::UnalignedParser, Parser, ParserWithMode, StringsBlock, StructsBlock},
     FdtError,
 };

@@ -62,15 +62,17 @@ extern crate std;
 mod tests;
 
 pub mod cell_collector;
+pub mod helpers;
 pub mod nodes;
 mod parsing;
 mod pretty_print;
 pub mod properties;
 mod util;
 
+use helpers::FallibleParser;
 use nodes::{
     root::{AllCompatibleIter, AllNodesIter, AllNodesWithNameIter, Root},
-    FallibleParser, Node,
+    Node,
 };
 use parsing::{
     aligned::AlignedParser, unaligned::UnalignedParser, NoPanic, Panic, ParseError, Parser, ParserWithMode,
@@ -93,11 +95,12 @@ pub enum FdtError {
     SliceTooSmall,
     /// An error was encountered during parsing
     ParseError(ParseError),
-    PHandleNotFound(u32),
+    MissingPHandleNode(u32),
     MissingParent,
     MissingRequiredNode(&'static str),
     MissingRequiredProperty(&'static str),
     InvalidPropertyValue,
+    InvalidNodeName,
     CollectCellsError,
 }
 
@@ -114,7 +117,7 @@ impl core::fmt::Display for FdtError {
             FdtError::BadPtr => write!(f, "an invalid pointer was passed"),
             FdtError::SliceTooSmall => write!(f, "provided slice is too small"),
             FdtError::ParseError(e) => core::fmt::Display::fmt(e, f),
-            FdtError::PHandleNotFound(value) => {
+            FdtError::MissingPHandleNode(value) => {
                 write!(f, "a node containing the `phandle` property value of `{value}` was not found")
             }
             FdtError::MissingParent => write!(f, "node parent is not present but needed to parse a property"),
@@ -125,6 +128,9 @@ impl core::fmt::Display for FdtError {
                 write!(f, "FDT node is missing a required property `{}`", name)
             }
             FdtError::InvalidPropertyValue => write!(f, "FDT property value is invalid"),
+            FdtError::InvalidNodeName => {
+                write!(f, "FDT node contained invalid characters or did not match the expected format")
+            }
             FdtError::CollectCellsError => {
                 write!(f, "overflow occurred while collecting `#<specifier>-cells` size values into the desired type")
             }

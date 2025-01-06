@@ -9,7 +9,7 @@ pub mod reg;
 pub mod values;
 
 use crate::{
-    nodes::{FallibleNode, FallibleRoot},
+    helpers::{FallibleNode, FallibleRoot},
     parsing::{BigEndianU32, ParserWithMode},
     FdtError,
 };
@@ -163,6 +163,20 @@ impl<'a> core::cmp::PartialEq<Model<'a>> for str {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PHandle(BigEndianU32);
+
+impl PHandle {
+    /// Create a new [`PHandle`] using an existing handle ID.
+    ///
+    /// Note: this function will convert the handle ID to big endian, so it
+    /// should be in the platform's native endianness.
+    pub fn new(handle: u32) -> Self {
+        Self(BigEndianU32::from_ne(handle))
+    }
+
+    pub fn as_u32(self) -> u32 {
+        self.0.to_ne()
+    }
+}
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for PHandle {
     fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {

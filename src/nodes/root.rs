@@ -3,9 +3,10 @@ use super::{
     chosen::Chosen,
     cpus::Cpus,
     memory::{Memory, ReservedMemory},
-    FallibleNode, FallibleRoot, IntoSearchableNodeName, Node, RawNode, SearchableNodeName,
+    AsNode, IntoSearchableNodeName, Node, RawNode, SearchableNodeName,
 };
 use crate::{
+    helpers::{FallibleNode, FallibleRoot},
     parsing::{aligned::AlignedParser, BigEndianToken, NoPanic, Panic, ParseError, Parser, ParserWithMode},
     properties::{cells::CellSizes, Compatible, PHandle, Property},
     FdtError,
@@ -365,6 +366,12 @@ impl<'a, P: ParserWithMode<'a>> Root<'a, P> {
             ],
             parent_index: 0,
         }))
+    }
+}
+
+impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for Root<'a, P> {
+    fn as_node(&self) -> Node<'a, P> {
+        self.node.alt()
     }
 }
 
