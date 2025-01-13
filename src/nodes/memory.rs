@@ -75,7 +75,7 @@ impl<'a, P: ParserWithMode<'a>> Memory<'a, P> {
         P::to_output(crate::tryblock!({
             match self.node.properties()?.find("initial-mapped-area")? {
                 Some(prop) => {
-                    let value = prop.value();
+                    let value = prop.value;
                     if value.len() != (/* effective address */8 + /* physical address */ 8 + /* size */ 4) {
                         return Err(FdtError::InvalidPropertyValue);
                     }
@@ -207,13 +207,13 @@ impl<'a, P: ParserWithMode<'a>> ReservedMemoryChild<'a, P> {
             // from the `NodeChildrenIter` struct
             let size_cells = self.node.parent().unwrap().property::<SizeCells>()?.unwrap_or(SizeCells(1));
 
-            if size.value().len() % size_cells.0 != 0 {
+            if size.value.len() % size_cells.0 != 0 {
                 return Err(FdtError::InvalidPropertyValue);
             }
 
             let mut builder = <C as CellCollector>::Builder::default();
 
-            for component in size.value().chunks_exact(4) {
+            for component in size.value.chunks_exact(4) {
                 if builder.push(u32::from_be_bytes(component.try_into().unwrap())).is_err() {
                     return Ok(Some(Err(CollectCellsError)));
                 }
@@ -240,13 +240,13 @@ impl<'a, P: ParserWithMode<'a>> ReservedMemoryChild<'a, P> {
             // from the `NodeChildrenIter` struct
             let size_cells = self.node.parent().unwrap().property::<SizeCells>()?.unwrap_or(SizeCells(1));
 
-            if alignment.value().len() % size_cells.0 != 0 {
+            if alignment.value.len() % size_cells.0 != 0 {
                 return Err(FdtError::InvalidPropertyValue);
             }
 
             let mut builder = <C as CellCollector>::Builder::default();
 
-            for component in alignment.value().chunks_exact(4) {
+            for component in alignment.value.chunks_exact(4) {
                 if builder.push(u32::from_be_bytes(component.try_into().unwrap())).is_err() {
                     return Ok(Some(Err(CollectCellsError)));
                 }

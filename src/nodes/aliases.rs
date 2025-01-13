@@ -84,7 +84,7 @@ where
     #[track_caller]
     fn next(&mut self) -> Option<Self::Item> {
         Some(P::to_output(match self.properties.next() {
-            Some(Ok(prop)) => crate::tryblock!({ Ok((prop.name(), prop.as_value::<&'a str>()?)) }),
+            Some(Ok(prop)) => crate::tryblock!({ Ok((prop.name, prop.as_value::<&'a str>()?)) }),
             Some(Err(e)) => Err(e),
             None => return None,
         }))

@@ -132,7 +132,7 @@ fn print_properties<'a, P: Parser<'a>>(
         any_props = true;
         let prop = prop?;
 
-        match prop.name() {
+        match prop.name {
             "reg" => {
                 write!(f, "{:width$}reg = <", ' ', width = depth * 4 + 4)?;
                 for (i, reg) in node.reg()?.unwrap().iter::<u64, Option<u64>>().enumerate() {
@@ -155,12 +155,12 @@ fn print_properties<'a, P: Parser<'a>>(
                 writeln!(f, "{:width$}{} = <{:#04x}>;", ' ', name, prop.as_value::<u32>()?, width = depth * 4 + 4)?;
             }
             _ => match prop.as_value::<&str>() {
-                Ok("") => writeln!(f, "{:width$}{};", ' ', prop.name(), width = depth * 4 + 4)?,
-                Ok(value) => writeln!(f, "{:width$}{} = {:?};", ' ', prop.name(), value, width = depth * 4 + 4)?,
-                _ => match prop.value().len() {
-                    0 => writeln!(f, "{:width$}{};", ' ', prop.name(), width = depth * 4 + 4)?,
+                Ok("") => writeln!(f, "{:width$}{};", ' ', prop.name, width = depth * 4 + 4)?,
+                Ok(value) => writeln!(f, "{:width$}{} = {:?};", ' ', prop.name, value, width = depth * 4 + 4)?,
+                _ => match prop.value.len() {
+                    0 => writeln!(f, "{:width$}{};", ' ', prop.name, width = depth * 4 + 4)?,
                     _ => {
-                        write!(f, "{:width$}{} = <", ' ', prop.name(), width = depth * 4 + 4)?;
+                        write!(f, "{:width$}{} = <", ' ', prop.name, width = depth * 4 + 4)?;
 
                         for (i, n) in prop.as_value::<U32List>()?.iter().enumerate() {
                             if i != 0 {

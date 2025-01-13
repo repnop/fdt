@@ -36,16 +36,20 @@ pub trait AsNode<'a, P: ParserWithMode<'a>> {
     fn as_node(&self) -> Node<'a, P>;
 }
 
+/// A node name that can searched with.
 #[derive(Debug, Clone, Copy)]
 pub enum SearchableNodeName<'a> {
+    /// Node name without the unit address
     Base(&'a str),
+    /// Node name with the unit address
     WithUnitAddress(NodeName<'a>),
 }
 
 /// Convert from a type that can potentially represent a node name that is able
 /// to be searched for during lookup operations.
 ///
-/// Currently, two type impls are defined:
+/// Currently, two type impls are defined on types other than
+/// [`SearchableNodeName`]:
 ///   1. [`NodeName`]: corresponds directly to a
 ///          [`SearchableNodeName::WithUnitAddress`].
 ///   2. [`&str`]: attempts to parse the `str` as `name@unit-address`,
@@ -54,6 +58,13 @@ pub enum SearchableNodeName<'a> {
 ///          resolve to the first node with that base name found.
 pub trait IntoSearchableNodeName<'a>: Sized + crate::sealed::Sealed {
     fn into_searchable_node_name(self) -> SearchableNodeName<'a>;
+}
+
+impl crate::sealed::Sealed for SearchableNodeName<'_> {}
+impl<'a> IntoSearchableNodeName<'a> for SearchableNodeName<'a> {
+    fn into_searchable_node_name(self) -> SearchableNodeName<'a> {
+        self
+    }
 }
 
 impl crate::sealed::Sealed for NodeName<'_> {}
@@ -75,9 +86,12 @@ impl<'a> IntoSearchableNodeName<'a> for &'a str {
     }
 }
 
+/// A node name, split into its component parts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NodeName<'a> {
+    /// Node name.
     pub name: &'a str,
+    /// Optional unit address specified after the `@`.
     pub unit_address: Option<&'a str>,
 }
 
@@ -108,7 +122,7 @@ pub struct Node<'a, P: ParserWithMode<'a>> {
 impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
     /// Change the type of this node's [`PanicMode`] to [`NoPanic`].
     #[inline(always)]
-    pub(crate) fn fallible(self) -> FallibleNode<'a, P> {
+    pub fn fallible(self) -> FallibleNode<'a, P> {
         self.alt()
     }
 
@@ -377,6 +391,8 @@ impl<Granularity> RawNode<Granularity> {
     }
 }
 
+/// Allows for searching and iterating over all of the properties of a given
+/// [`Node`].
 pub struct NodeProperties<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     data: &'a [<P as Parser<'a>>::Granularity],
     strings: StringsBlock<'a>,
@@ -394,6 +410,7 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
         }
     }
 
+    /// Create an iterator over the properties in the [`Node`].
     #[inline(always)]
     pub fn iter(self) -> NodePropertiesIter<'a, P> {
         NodePropertiesIter { properties: self.alt(), _mode: core::marker::PhantomData }
@@ -426,6 +443,7 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
         }))
     }
 
+    /// Attempt to find a property with the provided name.
     #[inline]
     #[track_caller]
     pub fn find(&self, name: &str) -> P::Output<Option<NodeProperty<'a>>> {
@@ -465,6 +483,7 @@ impl<'a, P: ParserWithMode<'a>> IntoIterator for NodeProperties<'a, P> {
     }
 }
 
+/// See [`NodeProperties::iter`].
 #[derive(Clone)]
 pub struct NodePropertiesIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     properties: NodeProperties<'a, (P::Parser, NoPanic)>,
@@ -486,10 +505,13 @@ impl<'a, P: ParserWithMode<'a>> Iterator for NodePropertiesIter<'a, P> {
     }
 }
 
+/// Generic node property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NodeProperty<'a> {
-    name: &'a str,
-    value: &'a [u8],
+    /// Property name.
+    pub name: &'a str,
+    /// Raw property value.
+    pub value: &'a [u8],
 }
 
 impl<'a> NodeProperty<'a> {
@@ -498,22 +520,15 @@ impl<'a> NodeProperty<'a> {
         Self { name, value }
     }
 
-    #[inline(always)]
-    pub fn name(&self) -> &'a str {
-        self.name
-    }
-
-    #[inline(always)]
-    pub fn value(&self) -> &'a [u8] {
-        self.value
-    }
-
+    /// Attempt to convert this property's value to the specified
+    /// [`PropertyValue`] type.
     #[inline(always)]
     pub fn as_value<V: PropertyValue<'a>>(&self) -> Result<V, InvalidPropertyValue> {
         V::parse(self.value)
     }
 }
 
+/// Allows for searching and iterating over the children of a given [`Node`].
 pub struct NodeChildren<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     data: &'a [<P as Parser<'a>>::Granularity],
     parent: &'a RawNode<<P as Parser<'a>>::Granularity>,
@@ -523,6 +538,7 @@ pub struct NodeChildren<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> 
 }
 
 impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
+    /// Create an iterator over the [`Node`]'s children.
     #[inline(always)]
     pub fn iter(&self) -> NodeChildrenIter<'a, P> {
         NodeChildrenIter {
@@ -559,6 +575,10 @@ impl<'a, P: ParserWithMode<'a>> NodeChildren<'a, P> {
         })
     }
 
+    /// Attempt to find the first child matching the provided name, see
+    /// [`IntoSearchableNodeName`] for more details. If the name lacks a unit
+    /// address, unit addresses on the children will be ignored when checking if
+    /// the name matches.
     #[inline]
     #[track_caller]
     pub fn find<'n, N>(&self, name: N) -> P::Output<Option<Node<'a, P>>>
@@ -609,6 +629,7 @@ impl<'a, P: ParserWithMode<'a>> IntoIterator for NodeChildren<'a, P> {
     }
 }
 
+/// See [`NodeChildren::iter`].
 #[derive(Clone)]
 pub struct NodeChildrenIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     children: NodeChildren<'a, (P::Parser, NoPanic)>,

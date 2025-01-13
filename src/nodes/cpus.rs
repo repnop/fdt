@@ -37,7 +37,7 @@ impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
     pub fn common_timebase_frequency(&self) -> P::Output<Option<u64>> {
         P::to_output(crate::tryblock!({
             match self.node.properties()?.find("timebase-frequency")? {
-                Some(prop) => match prop.value().len() {
+                Some(prop) => match prop.value.len() {
                     4 => Ok(Some(u64::from(prop.as_value::<u32>()?))),
                     8 => Ok(Some(prop.as_value::<u64>()?)),
                     _ => Err(FdtError::InvalidPropertyValue),
@@ -55,7 +55,7 @@ impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
     pub fn common_clock_frequency(&self) -> P::Output<Option<u64>> {
         P::to_output(crate::tryblock!({
             match self.node.properties()?.find("clock-frequency")? {
-                Some(prop) => match prop.value().len() {
+                Some(prop) => match prop.value.len() {
                     4 => Ok(Some(u64::from(prop.as_value::<u32>()?))),
                     8 => Ok(Some(prop.as_value::<u64>()?)),
                     _ => Err(FdtError::InvalidPropertyValue),
@@ -181,7 +181,7 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
                 return Err(FdtError::MissingRequiredProperty("reg"));
             };
 
-            if reg.value().is_empty() {
+            if reg.value.is_empty() {
                 return Err(FdtError::InvalidPropertyValue);
             }
 
@@ -189,7 +189,7 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
                 return Err(FdtError::MissingRequiredProperty("#address-cells"));
             };
 
-            Ok(CpuIds { reg: reg.value(), address_cells: address_cells.0, _collector: core::marker::PhantomData })
+            Ok(CpuIds { reg: reg.value, address_cells: address_cells.0, _collector: core::marker::PhantomData })
         }))
     }
 
@@ -208,7 +208,7 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
     pub fn clock_frequency(self) -> P::Output<u64> {
         P::to_output(crate::tryblock!({
             match self.node.properties()?.find("clock-frequency")? {
-                Some(prop) => match prop.value().len() {
+                Some(prop) => match prop.value.len() {
                     4 => Ok(u64::from(prop.as_value::<u32>()?)),
                     8 => Ok(prop.as_value::<u64>()?),
                     _ => Err(FdtError::InvalidPropertyValue),
@@ -222,7 +222,7 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
                         .find("clock-frequency")?
                         .ok_or(FdtError::MissingRequiredProperty("clock-frequency"))?;
 
-                    match prop.value().len() {
+                    match prop.value.len() {
                         4 => Ok(u64::from(prop.as_value::<u32>()?)),
                         8 => Ok(prop.as_value::<u64>()?),
                         _ => Err(FdtError::InvalidPropertyValue),
@@ -248,7 +248,7 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
     pub fn timebase_frequency(self) -> P::Output<u64> {
         P::to_output(crate::tryblock!({
             match self.node.properties()?.find("timebase-frequency")? {
-                Some(prop) => match prop.value().len() {
+                Some(prop) => match prop.value.len() {
                     4 => Ok(u64::from(prop.as_value::<u32>()?)),
                     8 => Ok(prop.as_value::<u64>()?),
                     _ => Err(FdtError::InvalidPropertyValue),
@@ -262,7 +262,7 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
                         .find("timebase-frequency")?
                         .ok_or(FdtError::MissingRequiredProperty("timebase-frequency"))?;
 
-                    match prop.value().len() {
+                    match prop.value.len() {
                         4 => Ok(u64::from(prop.as_value::<u32>()?)),
                         8 => Ok(prop.as_value::<u64>()?),
                         _ => Err(FdtError::InvalidPropertyValue),

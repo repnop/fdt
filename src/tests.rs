@@ -115,14 +115,14 @@ fn finds_root_node_properties() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let prop = fdt.root().find_node("/").unwrap().properties().find("compatible").unwrap();
 
-    assert_eq!(prop.value(), b"riscv-virtio\0");
+    assert_eq!(prop.value, b"riscv-virtio\0");
 
     // fallible
     let fdt = Fdt::new_fallible(TEST.as_slice()).unwrap();
     let prop =
         fdt.root().unwrap().find_node("/").unwrap().unwrap().properties().unwrap().find("compatible").unwrap().unwrap();
 
-    assert_eq!(prop.value(), b"riscv-virtio\0");
+    assert_eq!(prop.value, b"riscv-virtio\0");
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn properties() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
     let test = fdt.root().find_node("/soc/test").unwrap();
 
-    let props = test.properties().into_iter().map(|p| (p.name(), p.value())).collect::<std::vec::Vec<_>>();
+    let props = test.properties().into_iter().map(|p| (p.name, p.value)).collect::<std::vec::Vec<_>>();
 
     assert_eq!(
         props,
@@ -369,7 +369,7 @@ fn cpus() {
             cpu.as_node()
                 .properties()
                 .iter()
-                .map(|p| std::format!("{}={:?}", p.name(), p.value()))
+                .map(|p| std::format!("{}={:?}", p.name, p.value))
                 .collect::<std::vec::Vec<_>>()
         );
         cpu.reg::<u32>().iter().for_each(|n| std::println!("{:?}", n));
@@ -462,7 +462,7 @@ fn cpu_map() {
             .as_node()
             .raw_property("riscv,isa")
             .unwrap()
-            .value(),
+            .value,
         b"rv64imafdcsu\0"
     );
 }

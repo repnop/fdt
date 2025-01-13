@@ -30,9 +30,9 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
     pub fn bootargs(self) -> P::Output<Option<&'a str>> {
         P::to_output(crate::tryblock!({
             for prop in self.node.properties()?.into_iter().flatten() {
-                if prop.name() == "bootargs" {
+                if prop.name == "bootargs" {
                     return Ok(Some(
-                        core::str::from_utf8(&prop.value()[..prop.value().len() - 1])
+                        core::str::from_utf8(&prop.value[..prop.value.len() - 1])
                             .map_err(|_| FdtError::ParseError(ParseError::InvalidCStrValue))?,
                     ));
                 }
@@ -91,7 +91,7 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
                 .into_iter()
                 .find_map(|n| match n {
                     Err(e) => Some(Err(e)),
-                    Ok(property) => match property.name() == "stdout-path" {
+                    Ok(property) => match property.name == "stdout-path" {
                         false => None,
                         true => Some(property.as_value::<&'a str>().map_err(Into::into).map(|s| {
                             let (path, params) =
@@ -151,7 +151,7 @@ impl<'a, P: ParserWithMode<'a>> Chosen<'a, P> {
                 .into_iter()
                 .find_map(|n| match n {
                     Err(e) => Some(Err(e)),
-                    Ok(property) => match property.name() == "stdin-path" {
+                    Ok(property) => match property.name == "stdin-path" {
                         false => None,
                         true => Some(property.as_value::<&str>().map_err(Into::into).map(|s| {
                             let (path, params) =
