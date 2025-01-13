@@ -41,7 +41,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Reg<'a> {
             None => CellSizes::default(),
         };
 
-        let encoded_array = prop.value();
+        let encoded_array = prop.value;
 
         if encoded_array.len() % (cell_sizes.address_cells * 4 + cell_sizes.size_cells * 4) != 0 {
             return Err(FdtError::InvalidPropertyValue);

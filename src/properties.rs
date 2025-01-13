@@ -14,6 +14,9 @@ use crate::{
     FdtError,
 };
 
+/// A property (or potentially a group of related properties, see
+/// [`cells::CellSizes`]) that can be parsed from a [`crate::nodes::Node`] which
+/// may also need additional information from the devicetree.
 pub trait Property<'a, P: ParserWithMode<'a>>: Sized {
     fn parse(node: FallibleNode<'a, P>, root: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError>;
 }
@@ -60,18 +63,19 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Compatible<'a> {
 }
 
 impl<'a> Compatible<'a> {
-    /// First compatible model
+    /// First compatible model.
     pub fn first(self) -> &'a str {
         self.string.split('\0').next().unwrap_or(self.string)
     }
 
-    /// Returns an iterator over all compatible models
+    /// Returns an iterator over all compatible models.
     pub fn all(self) -> CompatibleIter<'a> {
         CompatibleIter { iter: self.string.split('\0') }
     }
 
-    pub fn compatible_with(self, kind: &str) -> bool {
-        self.all().any(|c| c == kind)
+    /// Returns whether the node is compatible with the given string value.
+    pub fn compatible_with(self, value: &str) -> bool {
+        self.all().any(|c| c == value)
     }
 }
 
@@ -84,6 +88,8 @@ impl<'a> IntoIterator for Compatible<'a> {
     }
 }
 
+/// An iterator over all of the strings contained within a [`Compatible`]
+/// property.
 pub struct CompatibleIter<'a> {
     iter: core::str::Split<'a, char>,
 }
@@ -121,6 +127,12 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Model<'a> {
 impl<'a> core::ops::Deref for Model<'a> {
     type Target = str;
     fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'a> AsRef<str> for Model<'a> {
+    fn as_ref(&self) -> &str {
         self.0
     }
 }
@@ -173,6 +185,7 @@ impl PHandle {
         Self(BigEndianU32::from_ne(handle))
     }
 
+    /// Return the [`PHandle`]'s value as a native-endianness [`u32`].
     pub fn as_u32(self) -> u32 {
         self.0.to_ne()
     }

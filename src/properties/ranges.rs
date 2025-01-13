@@ -46,7 +46,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Ranges<'a> {
             node.parent().ok_or(FdtError::MissingParent)?.property::<AddressCells>()?.unwrap_or_default();
         let cell_sizes = node.property::<CellSizes>()?.unwrap_or_default();
 
-        Ok(Some(Self { parent_address_cells, cell_sizes, ranges: ranges.value() }))
+        Ok(Some(Self { parent_address_cells, cell_sizes, ranges: ranges.value }))
     }
 }
 

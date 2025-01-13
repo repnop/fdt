@@ -73,14 +73,14 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for LegacyInterrupts<'a, P> {
                     return Err(FdtError::MissingRequiredProperty("interrupt-cells"));
                 };
 
-                if interrupts.value().len() % (interrupt_cells.0 * 4) != 0 {
+                if interrupts.value.len() % (interrupt_cells.0 * 4) != 0 {
                     return Err(FdtError::InvalidPropertyValue);
                 }
 
                 Ok(Some(Self {
                     interrupt_parent: InterruptParent(interrupt_parent.0.alt()),
                     interrupt_cells,
-                    encoded_array: interrupts.value(),
+                    encoded_array: interrupts.value,
                 }))
             }
             None => Ok(None),
@@ -154,7 +154,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for ExtendedInterrupts<'a, P> {
     fn parse(node: FallibleNode<'a, P>, root: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("interrupts-extended")? {
             Some(interrupts) => {
-                Ok(Some(Self { encoded_array: interrupts.value(), root: Root { node: root.node.alt() } }))
+                Ok(Some(Self { encoded_array: interrupts.value, root: Root { node: root.node.alt() } }))
             }
 
             None => Ok(None),
@@ -433,13 +433,13 @@ impl<'a, AddrMask: CellCollector, IntMask: CellCollector, P: ParserWithMode<'a>>
             node.property::<InterruptCells>()?.ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
         match node.properties()?.find("interrupt-map-mask")? {
             Some(prop) => {
-                if prop.value().len() % 4 != 0 {
+                if prop.value.len() % 4 != 0 {
                     return Err(FdtError::InvalidPropertyValue);
                 }
 
                 let mut address_collector = AddrMask::Builder::default();
                 let mut specifier_collector = IntMask::Builder::default();
-                let mut cells = prop.value().chunks_exact(4);
+                let mut cells = prop.value.chunks_exact(4);
 
                 // TODO: replace this stuff with `array_chunks` when its stabilized
                 //
@@ -575,7 +575,7 @@ impl<
             address_cells,
             interrupt_cells,
             node: node.alt(),
-            encoded_map: encoded_map.value(),
+            encoded_map: encoded_map.value,
             _collectors: core::marker::PhantomData,
         }))
     }
