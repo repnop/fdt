@@ -303,7 +303,7 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
     /// status is assigned to nodes for which no corresponding CPU exists.
     #[inline]
     #[track_caller]
-    pub fn status(&self) -> P::Output<Option<CpuStatus>> {
+    pub fn status(&self) -> P::Output<Option<CpuStatus<'a>>> {
         P::to_output(crate::tryblock!({
             let Some(status) = self.node.properties()?.find("status")? else {
                 return Ok(None);
@@ -334,7 +334,7 @@ impl<'a, P: ParserWithMode<'a>> Cpu<'a, P> {
     /// Example: `"fsl,MPC8572DS"`
     #[inline]
     #[track_caller]
-    pub fn enable_method(&self) -> P::Output<Option<CpuEnableMethods>> {
+    pub fn enable_method(&self) -> P::Output<Option<CpuEnableMethods<'a>>> {
         P::to_output(crate::tryblock!({
             let Some(status) = self.node.properties()?.find("enable-method")? else {
                 return Ok(None);
