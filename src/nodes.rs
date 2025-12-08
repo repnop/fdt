@@ -33,6 +33,7 @@ macro_rules! tryblock {
 
 /// Trait for extracting a [`Node`] from a wrapper type.
 pub trait AsNode<'a, P: ParserWithMode<'a>> {
+    #[allow(missing_docs)]
     fn as_node(&self) -> Node<'a, P>;
 }
 
@@ -57,6 +58,7 @@ pub enum SearchableNodeName<'a> {
 ///          just a base node name with no specified unit address, which will
 ///          resolve to the first node with that base name found.
 pub trait IntoSearchableNodeName<'a>: Sized + crate::sealed::Sealed {
+    #[allow(missing_docs)]
     fn into_searchable_node_name(self) -> SearchableNodeName<'a>;
 }
 
@@ -96,6 +98,7 @@ pub struct NodeName<'a> {
 }
 
 impl<'a> NodeName<'a> {
+    /// Create a new [`NodeName`] from its raw parts.
     pub fn new(name: &'a str, unit_address: Option<&'a str>) -> Self {
         Self { name, unit_address }
     }
@@ -272,6 +275,8 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
         self.property()
     }
 
+    /// Returns [`NodeProperties`] which allows searching and iterating over
+    /// this node's properties.
     #[inline]
     #[track_caller]
     pub fn properties(&self) -> P::Output<NodeProperties<'a, P>> {
@@ -297,6 +302,8 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
         }))
     }
 
+    /// Attempt to find and extract the specified property represented by
+    /// `Prop`.
     #[track_caller]
     pub fn property<Prop: Property<'a, P>>(&self) -> P::Output<Option<Prop>> {
         P::to_output(crate::tryblock!({ Prop::parse(self.alt(), self.make_root()?) }))
@@ -315,6 +322,8 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
         P::to_output(crate::tryblock!({ self.fallible().children()?.find(name).map(|o| o.map(|n| n.alt())) }))
     }
 
+    /// Returns [`NodeChildren`] which allows searching and iterating over this
+    /// node's children.
     #[inline]
     #[track_caller]
     pub fn children(&self) -> P::Output<NodeChildren<'a, P>> {
@@ -341,6 +350,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
         }))
     }
 
+    /// Attempt to retrieve the parent for this node. Note that this
     #[inline]
     pub fn parent(&self) -> Option<Self> {
         self.parent.map(|parent| Self {
@@ -376,6 +386,7 @@ impl<'a, P: ParserWithMode<'a>> Clone for Node<'a, P> {
 
 impl<'a, P: ParserWithMode<'a>> Copy for Node<'a, P> {}
 
+/// Newtype around a slice of raw node data.
 #[repr(transparent)]
 pub struct RawNode<Granularity = u32>([Granularity]);
 

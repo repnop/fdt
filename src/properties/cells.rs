@@ -51,7 +51,9 @@ use crate::{
 /// (`0x4600`), and the size is represented by a single cell (`0x100`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CellSizes {
+    #[allow(missing_docs)]
     pub address_cells: usize,
+    #[allow(missing_docs)]
     pub size_cells: usize,
 }
 
@@ -81,6 +83,7 @@ impl Default for CellSizes {
     }
 }
 
+/// Newtype representing the number of [`u32`]s that make up an address value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AddressCells(pub usize);
 
@@ -100,6 +103,7 @@ impl Default for AddressCells {
     }
 }
 
+/// Newtype representing the number of [`u32`]s that make up a size value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SizeCells(pub usize);
 

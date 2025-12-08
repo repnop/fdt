@@ -6,6 +6,7 @@ use crate::{
     FdtError,
 };
 
+/// A `reg` property value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reg<'a> {
     cell_sizes: CellSizes,
@@ -13,14 +14,18 @@ pub struct Reg<'a> {
 }
 
 impl<'a> Reg<'a> {
+    /// Standard cell sizes for this [`Reg`].
     pub fn cell_sizes(self) -> CellSizes {
         self.cell_sizes
     }
 
+    /// Returns an iterator over the raw property data for custom behavior.
     pub fn iter_raw(self) -> RegRawIter<'a> {
         RegRawIter { cell_sizes: self.cell_sizes, encoded_array: self.encoded_array }
     }
 
+    /// Iterate over the entries represented by this [`Reg`] and attempt to
+    /// collect them into the specified address and length types.
     pub fn iter<Addr: CellCollector, Len: CellCollector>(self) -> RegIter<'a, Addr, Len> {
         RegIter {
             cell_sizes: self.cell_sizes,
@@ -51,12 +56,16 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Reg<'a> {
     }
 }
 
+/// An individual entry in a [`Reg`] property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RegEntry<Addr, Len> {
+    /// Starting address.
     pub address: Addr,
+    /// Length of the region.
     pub len: Len,
 }
 
+#[allow(missing_docs)]
 pub struct RegIter<'a, CAddr: CellCollector, Len: CellCollector> {
     cell_sizes: CellSizes,
     encoded_array: &'a [u8],
@@ -99,6 +108,7 @@ impl<'a, CAddr: CellCollector, Len: CellCollector> Iterator for RegIter<'a, CAdd
     }
 }
 
+#[allow(missing_docs)]
 pub struct RegRawIter<'a> {
     cell_sizes: CellSizes,
     encoded_array: &'a [u8],
@@ -118,9 +128,13 @@ impl<'a> Iterator for RegRawIter<'a> {
     }
 }
 
+/// [`RegEntry`] except the address and length are represented by their raw
+/// underlying bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RawRegEntry<'a> {
+    #[allow(missing_docs)]
     pub address: &'a [u8],
+    #[allow(missing_docs)]
     pub len: &'a [u8],
 }
 
@@ -135,8 +149,15 @@ pub struct RawRegEntry<'a> {
 pub struct VirtualReg(u32);
 
 impl VirtualReg {
+    #[allow(missing_docs)]
     pub fn into_u32(self) -> u32 {
         self.0
+    }
+}
+
+impl From<VirtualReg> for u32 {
+    fn from(value: VirtualReg) -> Self {
+        value.0
     }
 }
 

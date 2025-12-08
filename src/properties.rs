@@ -18,6 +18,8 @@ use crate::{
 /// [`cells::CellSizes`]) that can be parsed from a [`crate::nodes::Node`] which
 /// may also need additional information from the devicetree.
 pub trait Property<'a, P: ParserWithMode<'a>>: Sized {
+    /// Attempt to parse out the property from the given node and a reference to
+    /// the root node of the devicetree.
     fn parse(node: FallibleNode<'a, P>, root: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError>;
 }
 
@@ -219,9 +221,13 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for PHandle {
 pub struct Status<'a>(&'a str);
 
 impl<'a> Status<'a> {
+    #[allow(missing_docs)]
     pub const OKAY: Self = Self("okay");
+    #[allow(missing_docs)]
     pub const DISABLED: Self = Self("disabled");
+    #[allow(missing_docs)]
     pub const RESERVED: Self = Self("reserved");
+    #[allow(missing_docs)]
     pub const FAIL: Self = Self("fail");
 
     /// Returns true if the status is `"okay"`

@@ -1,3 +1,4 @@
+/// Types and helpers for the devicetree PCI bindings.
 pub mod pci;
 
 use super::{cells::AddressCells, PHandle, Property};
@@ -13,7 +14,9 @@ use crate::{
 /// devicetree node. See the documentation for each type for more information.
 /// [`ExtendedInterrupts`] will take precedence if both properties exist.
 pub enum Interrupts<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
+    /// The `interrupts` property.
     Legacy(LegacyInterrupts<'a, P>),
+    /// The `interrupts-extended` property.
     Extended(ExtendedInterrupts<'a, P>),
 }
 
@@ -47,10 +50,12 @@ pub struct LegacyInterrupts<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Pani
 }
 
 impl<'a, P: ParserWithMode<'a>> LegacyInterrupts<'a, P> {
+    #[allow(missing_docs)]
     pub fn interrupt_parent(self) -> InterruptParent<'a, P> {
         self.interrupt_parent
     }
 
+    #[allow(missing_docs)]
     pub fn iter<I: CellCollector>(self) -> LegacyInterruptsIter<'a, I> {
         LegacyInterruptsIter {
             interrupt_cells: self.interrupt_cells,
@@ -73,7 +78,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for LegacyInterrupts<'a, P> {
                     return Err(FdtError::MissingRequiredProperty("interrupt-cells"));
                 };
 
-                if interrupts.value.len() % (interrupt_cells.0 * 4) != 0 {
+                if interrupts.value.len() % (interrupt_cells.as_byte_count()) != 0 {
                     return Err(FdtError::InvalidPropertyValue);
                 }
 
@@ -95,6 +100,7 @@ impl<'a, P: ParserWithMode<'a>> Clone for LegacyInterrupts<'a, P> {
     }
 }
 
+#[allow(missing_docs)]
 pub struct LegacyInterruptsIter<'a, I: CellCollector> {
     interrupt_cells: InterruptCells,
     encoded_array: &'a [u8],
@@ -104,7 +110,7 @@ pub struct LegacyInterruptsIter<'a, I: CellCollector> {
 impl<'a, I: CellCollector> Iterator for LegacyInterruptsIter<'a, I> {
     type Item = Result<I::Output, CollectCellsError>;
     fn next(&mut self) -> Option<Self::Item> {
-        let encoded_specifier = self.encoded_array.get(..self.interrupt_cells.0 * 4)?;
+        let encoded_specifier = self.encoded_array.get(..self.interrupt_cells.as_byte_count())?;
         let mut specifier_collector = <I as CellCollector>::Builder::default();
 
         for encoded_specifier in encoded_specifier.chunks_exact(4) {
@@ -117,7 +123,7 @@ impl<'a, I: CellCollector> Iterator for LegacyInterruptsIter<'a, I> {
             }
         }
 
-        self.encoded_array = self.encoded_array.get(self.interrupt_cells.0 * 4..)?;
+        self.encoded_array = self.encoded_array.get(self.interrupt_cells.as_byte_count()..)?;
         Some(Ok(I::map(specifier_collector.finish())))
     }
 }
@@ -145,6 +151,7 @@ pub struct ExtendedInterrupts<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Pa
 }
 
 impl<'a, P: ParserWithMode<'a>> ExtendedInterrupts<'a, P> {
+    #[allow(missing_docs)]
     pub fn iter(self) -> ExtendedInterruptsIter<'a, P> {
         ExtendedInterruptsIter { root: self.root, encoded_array: self.encoded_array }
     }
@@ -162,6 +169,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for ExtendedInterrupts<'a, P> {
     }
 }
 
+#[allow(missing_docs)]
 pub struct ExtendedInterruptsIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     root: Root<'a, P>,
     encoded_array: &'a [u8],
@@ -188,7 +196,7 @@ impl<'a, P: ParserWithMode<'a>> Iterator for ExtendedInterruptsIter<'a, P> {
                 return Err(FdtError::MissingRequiredProperty("#interrupt-cells"));
             };
 
-            let cells_length = interrupt_cells.0 * 4;
+            let cells_length = interrupt_cells.as_byte_count();
             let encoded_array = match self.encoded_array.get(..cells_length) {
                 Some(bytes) => bytes,
                 None => return Ok(None),
@@ -216,13 +224,14 @@ impl<'a, P: ParserWithMode<'a>> Iterator for ExtendedInterruptsIter<'a, P> {
     }
 }
 
-/// A single entry in an `interrupts-extended` property
+/// A single entry in an `interrupts-extended` property.
 pub struct ExtendedInterrupt<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     interrupt_parent: InterruptParent<'a, P>,
     interrupt_cells: InterruptCells,
     encoded_array: &'a [u8],
 }
 
+#[allow(missing_docs)]
 impl<'a, P: ParserWithMode<'a>> ExtendedInterrupt<'a, P> {
     pub fn interrupt_parent(self) -> InterruptParent<'a, P> {
         self.interrupt_parent
@@ -237,13 +246,26 @@ impl<'a, P: ParserWithMode<'a>> ExtendedInterrupt<'a, P> {
     }
 }
 
+/// An individual interrupt specifier from an [`ExtendedInterrupt`] value.
 pub struct InterruptSpecifier<'a> {
     interrupt_cells: InterruptCells,
     encoded_array: &'a [u8],
 }
 
 impl<'a> InterruptSpecifier<'a> {
-    /// Iterator over the components that comprise this interrupt specifier.
+    /// Attempt to collect the specifier bytes into a specific type.
+    pub fn collect_to<C: CellCollector>(self) -> Result<<C as CellCollector>::Output, CollectCellsError> {
+        let mut collector = <C as CellCollector>::Builder::default();
+        for chunk in self.encoded_array.chunks_exact(4) {
+            // UNWRAP: this unwrap cannot panic because `chunk` is guaranteed to
+            // be 4 bytes.
+            collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+        }
+
+        Ok(C::map(collector.finish()))
+    }
+
+    /// Iterator over the raw [`u32`] components that comprise this interrupt specifier.
     pub fn iter(self) -> InterruptSpecifierIter<'a> {
         InterruptSpecifierIter { encoded_array: self.encoded_array }
     }
@@ -385,6 +407,13 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptParent<'a, P> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InterruptCells(pub usize);
 
+impl InterruptCells {
+    /// The number of interrupt cells times `size_of::<u32>()`.
+    pub fn as_byte_count(self) -> usize {
+        self.0 * core::mem::size_of::<u32>()
+    }
+}
+
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptCells {
     fn parse(node: FallibleNode<'a, P>, _: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
         match node.properties()?.find("#interrupt-cells")? {
@@ -408,18 +437,20 @@ pub struct InterruptMapMask<AddrMask: CellCollector, IntMask: CellCollector> {
 }
 
 impl<AddrMask: CellCollector, IntMask: CellCollector> InterruptMapMask<AddrMask, IntMask> {
+    /// Mask the provided unit address and interrupt specifier with the value of
+    /// the mask.
     pub fn mask(
-        self,
+        &self,
         address: <AddrMask as CellCollector>::Output,
         interrupt_specifier: <IntMask as CellCollector>::Output,
     ) -> (<AddrMask as CellCollector>::Output, <IntMask as CellCollector>::Output)
     where
-        <AddrMask as CellCollector>::Output:
-            core::ops::BitAnd<<AddrMask as CellCollector>::Output, Output = <AddrMask as CellCollector>::Output>,
+        <AddrMask as CellCollector>::Output: Clone
+            + core::ops::BitAnd<<AddrMask as CellCollector>::Output, Output = <AddrMask as CellCollector>::Output>,
         <IntMask as CellCollector>::Output:
-            core::ops::BitAnd<<IntMask as CellCollector>::Output, Output = <IntMask as CellCollector>::Output>,
+            Clone + core::ops::BitAnd<<IntMask as CellCollector>::Output, Output = <IntMask as CellCollector>::Output>,
     {
-        (self.address_mask & address, self.interrupt_specifier_mask & interrupt_specifier)
+        (self.address_mask.clone() & address, self.interrupt_specifier_mask.clone() & interrupt_specifier)
     }
 }
 
@@ -480,19 +511,53 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptController {
     }
 }
 
+/// [Devicetree 2.4.3.1.
+/// `interrupt-map`](https://devicetree-specification.readthedocs.io/en/latest/chapter2-devicetree-basics.html#interrupt-map)
+///
+/// The `interrupt-map` property allows for mapping interrupt specifiers between
+/// one interrupt domain to a parent domain. The description of each generic
+/// parameter is as follows:
+///
+/// `ChildUnitAddres`:
+/// > The unit address of the child node being mapped. The number of 32-bit
+/// > cells required to specify this is described by the `#address-cells`
+/// > property of the bus node on which the child is located.
+///
+/// `ChildInterruptSpecifier`:
+/// > The interrupt specifier of the child node being mapped. The number of
+/// > 32-bit cells required to specify this component is described by the
+/// > `#interrupt-cells` property of this node—the nexus node containing the
+/// > `interrupt-map` property.
+///
+/// `ParentUnitAddress`:
+/// > The unit address in the domain of the interrupt parent. The number of
+/// > 32-bit cells required to specify this address is described by the
+/// > `#address-cells` property of the node pointed to by the
+/// > `interrupt-parent` field.
+///
+/// `ParentInterruptSpecifier`:
+/// > The interrupt specifier in the parent domain. The number of 32-bit
+/// > cells required to specify this component is described by the
+/// > `#interrupt-cells` property of the node pointed to by the
+/// > `interrupt-parent` field.
 pub struct InterruptMap<
     'a,
-    CAddr: CellCollector,
-    CInt: CellCollector = u32,
-    PAddr: CellCollector = u64,
-    PInt: CellCollector = u32,
+    ChildUnitAddress: CellCollector,
+    ChildInterruptSpecifier: CellCollector = u32,
+    ParentUnitAddress: CellCollector = u64,
+    ParentInterruptSpecifier: CellCollector = u32,
     P: ParserWithMode<'a> = (AlignedParser<'a>, Panic),
 > {
     address_cells: AddressCells,
     interrupt_cells: InterruptCells,
     node: FallibleNode<'a, P>,
     encoded_map: &'a [u8],
-    _collectors: core::marker::PhantomData<*mut (CAddr, CInt, PAddr, PInt)>,
+    _collectors: core::marker::PhantomData<*mut (
+        ChildUnitAddress,
+        ChildInterruptSpecifier,
+        ParentUnitAddress,
+        ParentInterruptSpecifier,
+    )>,
 }
 
 impl<
@@ -504,6 +569,7 @@ impl<
         PInt: CellCollector,
     > InterruptMap<'a, CAddr, CInt, PAddr, PInt, P>
 {
+    /// Create an iterator over each individual [`InterruptMapEntry`].
     pub fn iter(self) -> InterruptMapIter<'a, CAddr, CInt, PAddr, PInt, P> {
         InterruptMapIter {
             address_cells: self.address_cells,
@@ -514,11 +580,34 @@ impl<
         }
     }
 
+    /// Create an iterator over each individual [`InterruptMapEntry`] which uses the provided mask to modify the .
+    pub fn iter_masked(
+        self,
+        mask: InterruptMapMask<CAddr, CInt>,
+    ) -> MaskedInterruptMapIter<'a, CAddr, CInt, PAddr, PInt, P>
+    where
+        <CAddr as CellCollector>::Output:
+            Clone + core::ops::BitAnd<<CAddr as CellCollector>::Output, Output = <CAddr as CellCollector>::Output>,
+        <CInt as CellCollector>::Output:
+            Clone + core::ops::BitAnd<<CInt as CellCollector>::Output, Output = <CInt as CellCollector>::Output>,
+    {
+        MaskedInterruptMapIter {
+            address_cells: self.address_cells,
+            interrupt_cells: self.interrupt_cells,
+            node: self.node,
+            encoded_map: self.encoded_map,
+            mask,
+            _collectors: core::marker::PhantomData,
+        }
+    }
+
+    /// Attempt to find a specific child unit address with a specific child
+    /// interrupt specifier.
     #[allow(clippy::type_complexity)]
     pub fn find(
         self,
-        address: CAddr::Output,
-        interrupt_specifier: CInt::Output,
+        client_unit_address: CAddr::Output,
+        child_interrupt_specifier: CInt::Output,
     ) -> P::Output<Option<InterruptMapEntry<'a, CAddr, CInt, PAddr, PInt, P>>>
     where
         CAddr::Output: PartialEq,
@@ -537,7 +626,8 @@ impl<
                 .find(|e| match e {
                     Err(_) => true,
                     Ok(entry) => {
-                        entry.child_unit_address == address && entry.child_interrupt_specifier == interrupt_specifier
+                        entry.child_unit_address == client_unit_address
+                            && entry.child_interrupt_specifier == child_interrupt_specifier
                     }
                 })
                 .transpose()
@@ -581,6 +671,7 @@ impl<
     }
 }
 
+#[allow(missing_docs)]
 pub struct InterruptMapIter<
     'a,
     CAddr: CellCollector,
@@ -611,7 +702,7 @@ impl<
     fn next(&mut self) -> Option<Self::Item> {
         let res = crate::tryblock!({
             let child_addr_size = self.address_cells.0 * 4;
-            let child_intsp_size = self.interrupt_cells.0 * 4;
+            let child_intsp_size = self.interrupt_cells.as_byte_count();
 
             let Some((child_address_iter, rest)) = self.encoded_map.split_at_checked(child_addr_size) else {
                 return Ok(None);
@@ -637,7 +728,7 @@ impl<
                 .ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
 
             let parent_addr_size = parent_address_cells.0 * 4;
-            let parent_intsp_size = parent_interrupt_cells.0 * 4;
+            let parent_intsp_size = parent_interrupt_cells.as_byte_count();
 
             let Some((parent_address_iter, rest)) = rest.split_at_checked(parent_addr_size) else {
                 return Ok(None);
@@ -685,6 +776,132 @@ impl<
     }
 }
 
+#[allow(missing_docs)]
+pub struct MaskedInterruptMapIter<
+    'a,
+    CAddr: CellCollector,
+    CInt: CellCollector,
+    PAddr: CellCollector,
+    PInt: CellCollector,
+    P: ParserWithMode<'a> = (AlignedParser<'a>, Panic),
+> where
+    <CAddr as CellCollector>::Output:
+        Clone + core::ops::BitAnd<<CAddr as CellCollector>::Output, Output = <CAddr as CellCollector>::Output>,
+    <CInt as CellCollector>::Output:
+        Clone + core::ops::BitAnd<<CInt as CellCollector>::Output, Output = <CInt as CellCollector>::Output>,
+{
+    address_cells: AddressCells,
+    interrupt_cells: InterruptCells,
+    node: FallibleNode<'a, P>,
+    encoded_map: &'a [u8],
+    mask: InterruptMapMask<CAddr, CInt>,
+    _collectors: core::marker::PhantomData<*mut (CAddr, CInt, PAddr, PInt)>,
+}
+
+impl<
+        'a,
+        CAddr: CellCollector,
+        CInt: CellCollector,
+        PAddr: CellCollector,
+        PInt: CellCollector,
+        P: ParserWithMode<'a>,
+    > Iterator for MaskedInterruptMapIter<'a, CAddr, CInt, PAddr, PInt, P>
+where
+    <CAddr as CellCollector>::Output:
+        Clone + core::ops::BitAnd<<CAddr as CellCollector>::Output, Output = <CAddr as CellCollector>::Output>,
+    <CInt as CellCollector>::Output:
+        Clone + core::ops::BitAnd<<CInt as CellCollector>::Output, Output = <CInt as CellCollector>::Output>,
+{
+    type Item = P::Output<InterruptMapEntry<'a, CAddr, CInt, PAddr, PInt, P>>;
+
+    #[track_caller]
+    fn next(&mut self) -> Option<Self::Item> {
+        let res = crate::tryblock!({
+            let child_addr_size = self.address_cells.0 * 4;
+            let child_intsp_size = self.interrupt_cells.as_byte_count();
+
+            let Some((child_address_iter, rest)) = self.encoded_map.split_at_checked(child_addr_size) else {
+                return Ok(None);
+            };
+            let Some((child_specifier_iter, rest)) = rest.split_at_checked(child_intsp_size) else {
+                return Ok(None);
+            };
+            let Some((interrupt_parent, rest)) = rest.split_at_checked(4) else {
+                return Ok(None);
+            };
+
+            let root = self.node.make_root::<(P::Parser, NoPanic)>()?;
+            let phandle = u32::from_ne_bytes(interrupt_parent.try_into().unwrap());
+            let interrupt_parent = root
+                .resolve_phandle(PHandle(BigEndianU32::from_be(phandle)))?
+                .ok_or(FdtError::MissingPHandleNode(phandle.swap_bytes()))?;
+
+            let parent_address_cells = interrupt_parent
+                .property::<AddressCells>()?
+                .ok_or(FdtError::MissingRequiredProperty("#address-cells"))?;
+            let parent_interrupt_cells = interrupt_parent
+                .property::<InterruptCells>()?
+                .ok_or(FdtError::MissingRequiredProperty("#interrupt-cells"))?;
+
+            let parent_addr_size = parent_address_cells.0 * 4;
+            let parent_intsp_size = parent_interrupt_cells.as_byte_count();
+
+            let Some((parent_address_iter, rest)) = rest.split_at_checked(parent_addr_size) else {
+                return Ok(None);
+            };
+
+            let Some((parent_specifier_iter, rest)) = rest.split_at_checked(parent_intsp_size) else {
+                return Ok(None);
+            };
+            self.encoded_map = rest;
+
+            let mut child_address_collector = CAddr::Builder::default();
+            for chunk in child_address_iter.chunks_exact(4) {
+                child_address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            }
+
+            let mut child_specifier_collector = CInt::Builder::default();
+            for chunk in child_specifier_iter.chunks_exact(4) {
+                child_specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            }
+
+            let mut parent_address_collector = PAddr::Builder::default();
+            for chunk in parent_address_iter.chunks_exact(4) {
+                parent_address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            }
+
+            let mut parent_specifier_collector = PInt::Builder::default();
+            for chunk in parent_specifier_iter.chunks_exact(4) {
+                parent_specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            }
+
+            let child_unit_address = CAddr::map(child_address_collector.finish());
+            let child_interrupt_specifier = CInt::map(child_specifier_collector.finish());
+            let (child_unit_address, child_interrupt_specifier) =
+                self.mask.mask(child_unit_address, child_interrupt_specifier);
+
+            Ok(Some(InterruptMapEntry {
+                interrupt_parent: interrupt_parent.alt(),
+                child_unit_address,
+                child_interrupt_specifier,
+                parent_unit_address: PAddr::map(parent_address_collector.finish()),
+                parent_interrupt_specifier: PInt::map(parent_specifier_collector.finish()),
+            }))
+        });
+
+        #[allow(clippy::manual_map)]
+        match res.transpose() {
+            Some(output) => Some(P::to_output(output)),
+            None => None,
+        }
+    }
+}
+
+/// [Devicetree 2.4.3.1.
+/// `interrupt-map`](https://devicetree-specification.readthedocs.io/en/latest/chapter2-devicetree-basics.html#interrupt-map)
+///
+/// An individual `interrupt-map` entry, including the resolved interrupt parent
+/// [`PHandle`].
 pub struct InterruptMapEntry<
     'a,
     CAddr: CellCollector,
@@ -693,10 +910,15 @@ pub struct InterruptMapEntry<
     PInt: CellCollector,
     P: ParserWithMode<'a>,
 > {
+    /// Interrupt parent of this entry.
     pub interrupt_parent: Node<'a, P>,
+    /// See [`InterruptMap`] for more information.
     pub child_unit_address: CAddr::Output,
+    /// See [`InterruptMap`] for more information.
     pub child_interrupt_specifier: CInt::Output,
+    /// See [`InterruptMap`] for more information.
     pub parent_unit_address: PAddr::Output,
+    /// See [`InterruptMap`] for more information.
     pub parent_interrupt_specifier: PInt::Output,
 }
 

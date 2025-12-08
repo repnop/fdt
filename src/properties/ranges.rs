@@ -1,18 +1,17 @@
-use super::{
-    cells::{AddressCells, CellSizes},
-    Property,
-};
 use crate::{
     cell_collector::{BuildCellCollector, CellCollector, CollectCellsError},
     helpers::{FallibleNode, FallibleRoot},
     parsing::ParserWithMode,
+    properties::{
+        cells::{AddressCells, CellSizes},
+        Property,
+    },
     FdtError,
 };
 
-#[cfg(doc)]
-use crate::nodes::Node;
-
 /// See [`Node::ranges`].
+///
+/// [`Node::ranges`]: crate::nodes::Node::ranges
 #[derive(Debug, Clone, Copy)]
 pub struct Ranges<'a> {
     parent_address_cells: AddressCells,
@@ -21,6 +20,8 @@ pub struct Ranges<'a> {
 }
 
 impl<'a> Ranges<'a> {
+    /// Create an iterator over the entries in the property value and attempt to
+    /// collect the constituent parts into the specified [`CellCollector`]s.
     pub fn iter<CAddr, PAddr, Len>(self) -> RangesIter<'a, CAddr, PAddr, Len>
     where
         CAddr: CellCollector,
@@ -50,6 +51,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Ranges<'a> {
     }
 }
 
+#[allow(missing_docs)]
 pub struct RangesIter<'a, CAddr: CellCollector = u64, PAddr: CellCollector = u64, Len: CellCollector = u64> {
     parent_address_cells: AddressCells,
     cell_sizes: CellSizes,
@@ -115,9 +117,13 @@ impl<'a, CAddr: CellCollector, PAddr: CellCollector, Len: CellCollector> Iterato
     }
 }
 
+/// A single range entry contained by a [`Ranges`] property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Range<CAddr, PAddr, Len> {
+    #[allow(missing_docs)]
     pub child_bus_address: CAddr,
+    #[allow(missing_docs)]
     pub parent_bus_address: PAddr,
+    #[allow(missing_docs)]
     pub len: Len,
 }

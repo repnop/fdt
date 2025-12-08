@@ -5,8 +5,11 @@ use crate::cell_collector::{BuildCellCollector, CellCollector, CollectCellsError
 /// Numerical representation of a PCI address used within the `interrupt-map` property
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PciAddress {
+    #[allow(missing_docs)]
     pub hi: PciAddressHighBits,
+    #[allow(missing_docs)]
     pub mid: u32,
+    #[allow(missing_docs)]
     pub lo: u32,
 }
 

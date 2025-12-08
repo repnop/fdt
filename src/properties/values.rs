@@ -1,6 +1,7 @@
 use crate::{parsing::BigEndianU32, FdtError};
 use core::ffi::CStr;
 
+/// Error type indicating an invalid property value was encountered.
 #[derive(Debug, Clone, Copy)]
 pub struct InvalidPropertyValue;
 
@@ -10,7 +11,10 @@ impl From<InvalidPropertyValue> for FdtError {
     }
 }
 
+/// Helper trait for parsing property values.
 pub trait PropertyValue<'a>: Sized {
+    /// Attempt to parse the raw property value bytes that represent the type
+    /// implementing this trait.
     fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue>;
 }
 
@@ -79,10 +83,13 @@ impl<'a> PropertyValue<'a> for &'a str {
     }
 }
 
+/// Property value represented by a list of [`u32`] values.
 #[derive(Debug, Clone, Copy)]
 pub struct U32List<'a>(&'a [u8]);
 
 impl<'a> U32List<'a> {
+    /// Returns an iterator over the individual [`u32`] components of the
+    /// property value.
     pub fn iter(self) -> U32ListIter<'a> {
         U32ListIter(self.0)
     }
@@ -98,6 +105,7 @@ impl<'a> PropertyValue<'a> for U32List<'a> {
     }
 }
 
+#[allow(missing_docs)]
 pub struct U32ListIter<'a>(&'a [u8]);
 
 impl<'a> Iterator for U32ListIter<'a> {
@@ -109,6 +117,7 @@ impl<'a> Iterator for U32ListIter<'a> {
     }
 }
 
+/// Property value represented by a list of null-terminated string values.
 #[derive(Debug, Clone)]
 pub struct StringList<'a> {
     strs: core::str::Split<'a, char>,

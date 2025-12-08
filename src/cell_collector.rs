@@ -1,5 +1,7 @@
 use crate::FdtError;
 
+/// Error type indicating that the cell value that was attempted to be collected
+/// was too large for the desired type.
 #[derive(Debug, Clone, Copy)]
 pub struct CollectCellsError;
 
@@ -9,20 +11,45 @@ impl From<CollectCellsError> for FdtError {
     }
 }
 
+/// A type which performs the underlying collection of cell-sized values into
+/// the desired underlying type.
 pub trait BuildCellCollector: Default {
+    /// Output of the builder. Usually the same as the type implementing
+    /// [`CellCollector`].
     type Output;
 
+    /// Push a new [`u32`] component of a cell-sized value. This can error
+    /// whenever the value would overflow or otherwise be undesirable.
     fn push(&mut self, component: u32) -> Result<(), CollectCellsError>;
+    /// Finish collecting components and return the collected value.
     fn finish(self) -> Self::Output;
 }
 
+/// A type which can be "collected" into from devicetree cell-sized values. The
+/// most common types to use for this purpose are [`u32`] and [`u64`] but other
+/// types may implement this trait when it's useful, such as [PciAddress].
+///
+/// In the case that a cell value may not exist (such as the parent unit address
+/// in a PCI `interrupt-map`), [`Option<T>`] implements [`CellCollector`] for
+/// any type `C: CellCollector`.
+///
+/// For those who want the collection of these values to always succeed,
+/// [`core::num::Wrapping<T>`] implements [`CellCollector`] for numeric types
+/// which fit the bounds. ([`u32`] and above, as it requires `From<u32>`)
+///
+/// [PciAddress]: crate::properties::interrupts::pci::PciAddress
 pub trait CellCollector: Default + Sized {
+    /// Underlying output type, this is usually the same as `Self`.
     type Output;
+    /// Builder type used to collect the individual cell values into the desired type.
     type Builder: BuildCellCollector;
 
+    /// Maps the builder output to the desired underlying type. This is usually
+    /// a no-op, but may not always be, see the [`core::num::Wrapping<T>`] impl.
     fn map(builder_out: <Self::Builder as BuildCellCollector>::Output) -> Self::Output;
 }
 
+/// Generic integer type collector.
 pub struct BuildIntCollector<Int> {
     value: Int,
 }
@@ -79,6 +106,7 @@ impl<
     }
 }
 
+/// Wrapping collector, used for [`core::num::Wrapping<T>`].
 pub struct BuildWrappingIntCollector<Int> {
     value: Int,
 }
@@ -156,6 +184,7 @@ impl<T: CellCollector> CellCollector for Option<T> {
     }
 }
 
+#[allow(missing_docs)]
 #[derive(Default)]
 pub struct UsizeCollector {
     value: usize,
@@ -168,12 +197,7 @@ impl BuildCellCollector for UsizeCollector {
     fn push(&mut self, component: u32) -> Result<(), CollectCellsError> {
         use core::ops::{BitOr, Shl};
 
-        let shr = const {
-            match core::mem::size_of::<usize>().checked_sub(4) {
-                Some(value) => value as u32 * 8,
-                None => panic!("integer type too small"),
-            }
-        };
+        let shr = const { (core::mem::size_of::<usize>() - 4) * 8 };
 
         if self.value >> shr != 0 {
             return Err(CollectCellsError);
@@ -190,6 +214,7 @@ impl BuildCellCollector for UsizeCollector {
     }
 }
 
+/// [`BuildCellCollector`] for [`Option<T>`].
 pub struct BuildOptionalCellCollector<T: CellCollector> {
     builder: T::Builder,
     used: bool,
