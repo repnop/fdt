@@ -4,7 +4,7 @@
 
 use crate::{
     cell_collector::CollectCellsError,
-    nodes::{root::Root, Node, NodeName},
+    nodes::{root::Root, Node, NodeName, NodeProperty},
     parsing::{NoPanic, Parser},
     properties::values::{InvalidPropertyValue, U32List},
     FdtError,
@@ -155,26 +155,40 @@ fn print_properties<'a, P: Parser<'a>>(
             }
             _ => match prop.as_value::<&str>() {
                 Ok("") => writeln!(f, "{:width$}{};", ' ', prop.name, width = depth * 4 + 4)?,
-                Ok(value) => writeln!(f, "{:width$}{} = {:?};", ' ', prop.name, value, width = depth * 4 + 4)?,
-                _ => match prop.value.len() {
-                    0 => writeln!(f, "{:width$}{};", ' ', prop.name, width = depth * 4 + 4)?,
-                    _ => {
-                        write!(f, "{:width$}{} = <", ' ', prop.name, width = depth * 4 + 4)?;
+                Ok(value) => {
+                    let len = value.len();
+                    let printable_character_count = value.chars().filter(|c| c.is_ascii_graphic()).count();
 
-                        for (i, n) in prop.as_value::<U32List>()?.iter().enumerate() {
-                            if i != 0 {
-                                write!(f, " ")?;
-                            }
-
-                            write!(f, "{n:#04x}")?;
-                        }
-
-                        writeln!(f, ">;")?;
+                    match printable_character_count * 100 / len {
+                        0..75 => print_prop_raw_value(f, prop, depth)?,
+                        _ => writeln!(f, "{:width$}{} = {:?};", ' ', prop.name, value, width = depth * 4 + 4)?,
                     }
-                },
+                }
+                _ => print_prop_raw_value(f, prop, depth)?,
             },
         }
     }
 
     Ok(any_props)
+}
+
+fn print_prop_raw_value(f: &mut core::fmt::Formatter<'_>, prop: NodeProperty<'_>, depth: usize) -> Result<(), Error> {
+    match prop.value.len() {
+        0 => writeln!(f, "{:width$}{};", ' ', prop.name, width = depth * 4 + 4)?,
+        _ => {
+            write!(f, "{:width$}{} = <", ' ', prop.name, width = depth * 4 + 4)?;
+
+            for (i, n) in prop.as_value::<U32List>()?.iter().enumerate() {
+                if i != 0 {
+                    write!(f, " ")?;
+                }
+
+                write!(f, "{n:#04x}")?;
+            }
+
+            writeln!(f, ">;")?;
+        }
+    }
+
+    Ok(())
 }
