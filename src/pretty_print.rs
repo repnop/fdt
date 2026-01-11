@@ -57,8 +57,7 @@ pub fn print_fdt<'a, P: Parser<'a>>(
         let (mut n_braces, mut final_depth) = (0, 0);
         writeln!(f, "/ {{")?;
         any_props = print_properties(f, root.node, 0)?;
-        loop {
-            let Some((depth, node)) = node_iter.next().transpose()? else { break };
+        while let Some((depth, node)) = node_iter.next().transpose()? {
             let next_depth = match node_iter.peek().cloned().transpose()? {
                 Some((next_depth, _)) => next_depth,
                 None => 0,

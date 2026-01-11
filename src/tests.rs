@@ -22,7 +22,7 @@ struct AlignArrayUp<const N: usize>([u8; N]);
 impl<const N: usize> AlignArrayUp<N> {
     const fn align_up<const M: usize>(self) -> [u8; M] {
         assert!(M > N);
-        assert!(M % 4 == 0);
+        assert!(M.is_multiple_of(4));
 
         let mut copy: [u8; M] = [0u8; M];
         let mut i = 0;

@@ -57,11 +57,11 @@ pub enum SearchableNodeName<'a> {
 /// Currently, two type impls are defined on types other than
 /// [`SearchableNodeName`]:
 ///   1. [`NodeName`]: corresponds directly to a
-///          [`SearchableNodeName::WithUnitAddress`].
+///      [`SearchableNodeName::WithUnitAddress`].
 ///   2. [`&str`]: attempts to parse the `str` as `name@unit-address`,
-///          corresponding to [`SearchableNodeName::WithUnitAddress`], or as
-///          just a base node name with no specified unit address, which will
-///          resolve to the first node with that base name found.
+///      corresponding to [`SearchableNodeName::WithUnitAddress`], or as just a
+///      base node name with no specified unit address, which will resolve
+///      to the first node with that base name found.
 pub trait IntoSearchableNodeName<'a>: Sized + crate::sealed::Sealed {
     #[allow(missing_docs)]
     fn into_searchable_node_name(self) -> SearchableNodeName<'a>;
