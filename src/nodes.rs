@@ -1,7 +1,12 @@
+/// `/aliases` node.
 pub mod aliases;
+/// Parameters chosen or specified by the system firmware at run time.
 pub mod chosen;
+/// Description of the CPUs available on the system.
 pub mod cpus;
+/// Memory region nodes and properties.
 pub mod memory;
+/// Root devicetree node type and helpers.
 pub mod root;
 
 use crate::{
@@ -526,6 +531,7 @@ pub struct NodeProperty<'a> {
 }
 
 impl<'a> NodeProperty<'a> {
+    /// Create a new [`NodeProperty`] from its name and raw value.
     #[inline(always)]
     pub fn new(name: &'a str, value: &'a [u8]) -> Self {
         Self { name, value }

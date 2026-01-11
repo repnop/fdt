@@ -58,6 +58,7 @@ impl PartialEq<PciAddress> for &'_ PciAddress {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PciAddressHighBits(u32);
 
+#[allow(missing_docs)]
 impl PciAddressHighBits {
     #[inline(always)]
     pub fn new(raw: u32) -> Self {
@@ -118,6 +119,8 @@ impl core::ops::BitAnd for PciAddress {
     }
 }
 
+/// Type of PCI address space.
+#[allow(missing_docs)]
 #[repr(u8)]
 pub enum PciAddressSpace {
     Configuration = 0b00,
@@ -126,6 +129,7 @@ pub enum PciAddressSpace {
     Memory64 = 0b11,
 }
 
+#[allow(missing_docs)]
 #[derive(Default)]
 pub struct PciAddressCollector {
     address: PciAddress,

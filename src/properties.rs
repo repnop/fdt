@@ -2,10 +2,15 @@
 // v. 2.0. If a copy of the MPL was not distributed with this file, You can
 // obtain one at https://mozilla.org/MPL/2.0/.
 
+/// Types for various `*-cells` properties.
 pub mod cells;
+/// Types for working with interrupt properties.
 pub mod interrupts;
+/// Types for working with the `ranges` property.
 pub mod ranges;
+/// Type for working with the `reg` property.
 pub mod reg;
+/// Abstractions for various devicetree value types.
 pub mod values;
 
 use crate::{

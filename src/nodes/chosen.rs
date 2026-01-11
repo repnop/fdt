@@ -175,7 +175,9 @@ impl<'a, P: ParserWithMode<'a>> Copy for Chosen<'a, P> {}
 
 /// See [`Chosen::stdin`].
 pub struct Stdin<'a, P: ParserWithMode<'a>> {
+    /// Node representing an stdin device.
     pub node: Node<'a, P>,
+    /// Optional parameters following the node path.
     pub params: Option<&'a str>,
 }
 
@@ -193,7 +195,9 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Stdin<'a, P> {
 
 /// See [`Chosen::stdout`].
 pub struct Stdout<'a, P: ParserWithMode<'a>> {
+    /// Node representing an stdout device.
     pub node: Node<'a, P>,
+    /// Optional parameters following the node path.
     pub params: Option<&'a str>,
 }
 
@@ -209,6 +213,8 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Stdout<'a, P> {
     }
 }
 
+/// Like [`Stdout`] and [`Stdin`] but does not contain the resolved node, only
+/// its path and the optional parameters that may follow.
 pub struct StdInOutPath<'a> {
     path: &'a str,
     params: Option<&'a str>,

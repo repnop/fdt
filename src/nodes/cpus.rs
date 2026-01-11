@@ -76,6 +76,8 @@ impl<'a, P: ParserWithMode<'a>> Cpus<'a, P> {
         }))
     }
 
+    /// Create an iterator over the children of this node, primarily composed of
+    /// [`Cpu`] nodes.
     pub fn iter(&self) -> P::Output<CpusIter<'a, P>> {
         P::to_output(crate::tryblock!({
             Ok(CpusIter { children: self.node.children()?.iter().filter(filter_cpus::<P>) })
@@ -99,6 +101,7 @@ fn filter_cpus<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>, Fdt
     }
 }
 
+#[allow(missing_docs)]
 pub struct CpusIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     children: core::iter::Filter<
         NodeChildrenIter<'a, (P::Parser, NoPanic)>,
@@ -481,6 +484,7 @@ impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for Cpu<'a, P> {
     }
 }
 
+/// CPU status value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct CpuStatus<'a>(&'a str);
@@ -596,6 +600,7 @@ impl<'a, C: CellCollector> CpuIds<'a, C> {
         self.iter().next().unwrap()
     }
 
+    /// Create an iterator over the CPU IDs described by a [`Cpu`] node.
     pub fn iter(&self) -> CpuIdsIter<'a, C> {
         CpuIdsIter { reg: self.reg, address_cells: self.address_cells, _collector: core::marker::PhantomData }
     }
@@ -617,6 +622,7 @@ impl<'a, C: CellCollector> core::fmt::Debug for CpuIds<'a, C> {
     }
 }
 
+#[allow(missing_docs)]
 pub struct CpuIdsIter<'a, C: CellCollector> {
     reg: &'a [u8],
     address_cells: usize,
@@ -723,6 +729,7 @@ fn filter_sockets<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>, 
     }
 }
 
+#[allow(missing_docs)]
 pub struct CpuSocketIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     children: core::iter::Filter<
         NodeChildrenIter<'a, (P::Parser, NoPanic)>,
@@ -751,6 +758,7 @@ fn filter_clusters<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>,
     }
 }
 
+#[allow(missing_docs)]
 pub struct CpuClusterIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     children: core::iter::Filter<
         NodeChildrenIter<'a, (P::Parser, NoPanic)>,
@@ -830,6 +838,7 @@ fn filter_cores<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>, Fd
     }
 }
 
+#[allow(missing_docs)]
 pub struct CpuCoreIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     children: core::iter::Filter<
         NodeChildrenIter<'a, (P::Parser, NoPanic)>,
@@ -909,6 +918,7 @@ fn filter_threads<'a, P: ParserWithMode<'a>>(node: &Result<FallibleNode<'a, P>, 
     }
 }
 
+#[allow(missing_docs)]
 pub struct CpuThreadIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     children: core::iter::Filter<
         NodeChildrenIter<'a, (P::Parser, NoPanic)>,

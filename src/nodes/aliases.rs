@@ -72,6 +72,7 @@ impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for Aliases<'a, P> {
     }
 }
 
+#[allow(missing_docs)]
 pub struct AllAliasesIter<'a, P: ParserWithMode<'a>> {
     properties: NodePropertiesIter<'a, FallibleParser<'a, P>>,
 }

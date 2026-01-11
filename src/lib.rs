@@ -62,11 +62,15 @@ extern crate std;
 #[cfg(test)]
 mod tests;
 
+/// Trait and types for working with `*-cells` values.
 pub mod cell_collector;
+/// Helper type aliases.
 pub mod helpers;
+/// Devicetree node abstractions.
 pub mod nodes;
 mod parsing;
 mod pretty_print;
+/// Devicetree property abstractions.
 pub mod properties;
 mod util;
 
@@ -96,12 +100,21 @@ pub enum FdtError {
     SliceTooSmall,
     /// An error was encountered during parsing
     ParseError(ParseError),
+    /// Attempted to resolve the `phandle` value for a node, but was unable to
+    /// locate it.
     MissingPHandleNode(u32),
+    /// A parent node is required.
     MissingParent,
+    /// A required node with the given name wasn't found.
     MissingRequiredNode(&'static str),
+    /// A required property with the given name wasn't found.
     MissingRequiredProperty(&'static str),
+    /// Property name contained invalid characters.
     InvalidPropertyValue,
+    /// Node name contained invalid characters.
     InvalidNodeName,
+    /// A `-cells` property value was unable to be collected into the specified
+    /// type.
     CollectCellsError,
 }
 
@@ -169,6 +182,7 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Display for Fdt<'a, P> {
     }
 }
 
+/// FDT header.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct FdtHeader {
@@ -414,14 +428,17 @@ impl<'a, P: ParserWithMode<'a>> Fdt<'a, P> {
         self.header.total_size as usize
     }
 
+    /// Header describing this devicetree.
     pub fn header(&self) -> &FdtHeader {
         &self.header
     }
 
+    /// Slice pointing to the raw strings block.
     pub fn strings_block(&self) -> &'a [u8] {
         self.strings.0
     }
 
+    /// Slice pointing to the raw structs block.
     pub fn structs_block(&self) -> &'a [P::Granularity] {
         self.structs.0
     }

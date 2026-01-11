@@ -388,6 +388,7 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Root<'a, P> {
     }
 }
 
+#[allow(missing_docs)]
 pub struct AllNodesWithNameIter<'a, 'b, P: ParserWithMode<'a>> {
     pub(crate) iter: AllNodesIter<'a, (P::Parser, NoPanic)>,
     pub(crate) name: &'b str,
@@ -443,6 +444,7 @@ impl<'a, 'b, P: ParserWithMode<'a>> Iterator for AllCompatibleIter<'a, 'b, P> {
     }
 }
 
+#[allow(missing_docs)]
 pub struct AllNodesIter<'a, P: ParserWithMode<'a>> {
     pub(crate) parser: P,
     pub(crate) parents: [&'a [<P as Parser<'a>>::Granularity]; 16],

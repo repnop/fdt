@@ -133,6 +133,7 @@ pub struct ReservedMemory<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)
 impl<'a, P: ParserWithMode<'a>> ReservedMemory<'a, P> {
     #[inline]
     #[track_caller]
+    #[allow(missing_docs)]
     pub fn cell_sizes(&self) -> P::Output<CellSizes> {
         P::to_output(
             self.node
@@ -143,6 +144,7 @@ impl<'a, P: ParserWithMode<'a>> ReservedMemory<'a, P> {
 
     #[inline]
     #[track_caller]
+    #[allow(missing_docs)]
     pub fn children(&self) -> P::Output<ReservedMemoryChildrenIter<'a, P>> {
         P::to_output(crate::tryblock!({ Ok(ReservedMemoryChildrenIter { children: self.node.children()?.iter() }) }))
     }
@@ -154,6 +156,7 @@ impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for ReservedMemory<'a, P> {
     }
 }
 
+#[allow(missing_docs)]
 pub struct ReservedMemoryChildrenIter<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     children: NodeChildrenIter<'a, (P::Parser, NoPanic)>,
 }
@@ -170,11 +173,13 @@ impl<'a, P: ParserWithMode<'a>> Iterator for ReservedMemoryChildrenIter<'a, P> {
     }
 }
 
+#[allow(missing_docs)]
 pub struct ReservedMemoryChild<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Panic)> {
     node: FallibleNode<'a, P>,
 }
 
 impl<'a, P: ParserWithMode<'a>> ReservedMemoryChild<'a, P> {
+    #[allow(missing_docs)]
     pub fn name(&self) -> P::Output<NodeName<'a>> {
         P::to_output(self.node.name())
     }
@@ -327,9 +332,11 @@ impl<'a, P: ParserWithMode<'a>> AsNode<'a, P> for ReservedMemoryChild<'a, P> {
     }
 }
 
-/// A memory region
+/// A memory region.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MemoryRegion {
+    #[allow(missing_docs)]
     pub starting_address: u64,
+    #[allow(missing_docs)]
     pub size: Option<usize>,
 }
