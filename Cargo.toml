@@ -2,7 +2,7 @@
 name = "fdt"
 version = "0.2.0-alpha1"
 authors = ["Wesley Norris <repnop@outlook.com>"]
-edition = "2018"
+edition = "2021"
 
 repository = "https://github.com/repnop/fdt"
 
@@ -15,5 +15,6 @@ readme = "README.md"
 
 [features]
 pretty-printing = []
+linux-dt-bindings = []
 
 [dependencies]
