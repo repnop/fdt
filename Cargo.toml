@@ -1,6 +1,6 @@
 [package]
 name = "fdt"
-version = "0.2.0-alpha1"
+version = "0.2.0-alpha2"
 authors = ["Wesley Norris <repnop@repnop.dev>"]
 edition = "2021"
 
