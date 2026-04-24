@@ -1,0 +1,28 @@
+on: [push, pull_request]
+name: Testing & Linting
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: rust:latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: cargo test
+        run: cargo test --all-targets --all-features
+  clippy:
+    runs-on: ubuntu-latest
+    container: rust:latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: install clippy
+        run: rustup component add clippy
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -Dwarnings
+  rustfmt:
+    runs-on: ubuntu-latest
+    container: rust:latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: install rustfmt
+        run: rustup component add rustfmt
+      - name: rustfmt check
+        run: cargo fmt --all -- --check
