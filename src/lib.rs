@@ -68,7 +68,10 @@ pub mod cell_collector;
 pub mod helpers;
 /// Devicetree node abstractions.
 pub mod nodes;
-mod parsing;
+/// Traits, types, and helpers for parsing flattened devicetrees. The helper types are not meant
+/// to be used by end users but need to be public. If you have a need to create
+/// a custom parser or other behavior, please open an issue.
+pub mod parsing;
 mod pretty_print;
 /// Devicetree property abstractions.
 pub mod properties;
@@ -92,7 +95,7 @@ mod sealed {
 /// Possible errors when attempting to create an `Fdt`
 #[derive(Debug, Clone, Copy)]
 pub enum FdtError {
-    /// The FDT had an invalid magic value
+    /// The flattened devicetree had an invalid magic value
     BadMagic,
     /// The given pointer was null
     BadPtr,
@@ -186,9 +189,9 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Display for Fdt<'a, P> {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct FdtHeader {
-    /// FDT header magic
+    /// Flattened devicetree header magic
     pub magic: u32,
-    /// Total size in bytes of the FDT structure
+    /// Total size in bytes of the flattened devicetree structure
     pub total_size: u32,
     /// Offset in bytes from the start of the header to the structure block
     pub structs_offset: u32,
@@ -197,9 +200,9 @@ pub struct FdtHeader {
     /// Offset in bytes from the start of the header to the memory reservation
     /// block
     pub memory_reserve_map_offset: u32,
-    /// FDT version
+    /// Flattened devicetree version
     pub version: u32,
-    /// Last compatible FDT version
+    /// Last compatible flattened devicetree version
     pub last_compatible_version: u32,
     /// System boot CPU ID
     pub boot_cpuid: u32,

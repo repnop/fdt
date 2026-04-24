@@ -6,6 +6,7 @@ use crate::FdtError;
 
 use super::{BigEndianToken, BigEndianU32, ParseError, Parser, Stream, StringsBlock, StructsBlock};
 
+/// See [`Parser`].
 pub struct UnalignedParser<'a> {
     stream: Stream<'a, u8>,
     strings: StringsBlock<'a>,
