@@ -1,4 +1,4 @@
-use crate::{parsing::BigEndianU32, FdtError};
+use crate::{parsing::BigEndianU32, properties::PHandle, FdtError};
 use core::ffi::CStr;
 
 /// Error type indicating an invalid property value was encountered.
@@ -142,5 +142,11 @@ impl<'a> Iterator for StringList<'a> {
 impl<'a> From<&'a str> for StringList<'a> {
     fn from(value: &'a str) -> Self {
         Self { strs: value.split('\0') }
+    }
+}
+
+impl<'a> PropertyValue<'a> for PHandle {
+    fn parse(value: &'a [u8]) -> Result<Self, InvalidPropertyValue> {
+        Ok(PHandle::new(<u32 as PropertyValue<'a>>::parse(value)?))
     }
 }
