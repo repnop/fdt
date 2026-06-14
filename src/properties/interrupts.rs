@@ -106,7 +106,7 @@ impl<'a> Iterator for LegacyInterruptsIter<'a> {
     type Item = InterruptSpecifier<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         let encoded_array = self.encoded_array.split_off(..self.interrupt_cells.as_byte_count())?;
-        Some(InterruptSpecifier { interrupt_cells: self.interrupt_cells, encoded_array })
+        Some(InterruptSpecifier { encoded_array })
     }
 }
 
@@ -224,13 +224,12 @@ impl<'a, P: ParserWithMode<'a>> ExtendedInterrupt<'a, P> {
     }
 
     pub fn interrupt_specifier(self) -> InterruptSpecifier<'a> {
-        InterruptSpecifier { interrupt_cells: self.interrupt_cells, encoded_array: self.encoded_array }
+        InterruptSpecifier { encoded_array: self.encoded_array }
     }
 }
 
 /// An individual interrupt specifier from an [`ExtendedInterrupt`] or [`LegacyInterrupts`] value.
 pub struct InterruptSpecifier<'a> {
-    interrupt_cells: InterruptCells,
     encoded_array: &'a [u8],
 }
 
@@ -255,7 +254,7 @@ impl<'a> InterruptSpecifier<'a> {
     /// Extract the single component that comprises the interrupt specifier, if
     /// the `#interrupt-cells` value is `1`.
     pub fn single(self) -> Option<u32> {
-        if self.interrupt_cells.0 != 1 {
+        if self.encoded_array.len() != 4 {
             return None;
         }
 
@@ -265,7 +264,7 @@ impl<'a> InterruptSpecifier<'a> {
     /// Extract the two components that comprise the interrupt specifier, if the
     /// `#interrupt-cells` value is `2`.
     pub fn pair(self) -> Option<(u32, u32)> {
-        if self.interrupt_cells.0 != 2 {
+        if self.encoded_array.len() != 8 {
             return None;
         }
 
