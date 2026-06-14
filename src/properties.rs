@@ -6,6 +6,8 @@
 pub mod cells;
 /// Types for working with interrupt properties.
 pub mod interrupts;
+/// Types and helpers for the devicetree PCI bindings.
+pub mod pci;
 /// Types for working with the `ranges` property.
 pub mod ranges;
 /// Type for working with the `reg` property.

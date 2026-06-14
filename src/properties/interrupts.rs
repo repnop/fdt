@@ -1,5 +1,3 @@
-/// Types and helpers for the devicetree PCI bindings.
-pub mod pci;
 
 use super::{cells::AddressCells, PHandle, Property};
 use crate::{
