@@ -56,12 +56,8 @@ impl<'a, P: ParserWithMode<'a>> LegacyInterrupts<'a, P> {
     }
 
     #[allow(missing_docs)]
-    pub fn iter<I: CellCollector>(self) -> LegacyInterruptsIter<'a, I> {
-        LegacyInterruptsIter {
-            interrupt_cells: self.interrupt_cells,
-            encoded_array: self.encoded_array,
-            _collector: core::marker::PhantomData,
-        }
+    pub fn iter(self) -> LegacyInterruptsIter<'a> {
+        LegacyInterruptsIter { interrupt_cells: self.interrupt_cells, encoded_array: self.encoded_array }
     }
 }
 
@@ -101,30 +97,16 @@ impl<'a, P: ParserWithMode<'a>> Clone for LegacyInterrupts<'a, P> {
 }
 
 #[allow(missing_docs)]
-pub struct LegacyInterruptsIter<'a, I: CellCollector> {
+pub struct LegacyInterruptsIter<'a> {
     interrupt_cells: InterruptCells,
     encoded_array: &'a [u8],
-    _collector: core::marker::PhantomData<*mut I>,
 }
 
-impl<'a, I: CellCollector> Iterator for LegacyInterruptsIter<'a, I> {
-    type Item = Result<I::Output, CollectCellsError>;
+impl<'a> Iterator for LegacyInterruptsIter<'a> {
+    type Item = InterruptSpecifier<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        let encoded_specifier = self.encoded_array.get(..self.interrupt_cells.as_byte_count())?;
-        let mut specifier_collector = <I as CellCollector>::Builder::default();
-
-        for encoded_specifier in encoded_specifier.chunks_exact(4) {
-            // TODO: replace this stuff with `array_chunks` when its stabilized
-            //
-            // These unwraps can't panic because `chunks_exact` guarantees that
-            // we'll always get slices of 4 bytes
-            if let Err(e) = specifier_collector.push(u32::from_be_bytes(encoded_specifier.try_into().unwrap())) {
-                return Some(Err(e));
-            }
-        }
-
-        self.encoded_array = self.encoded_array.get(self.interrupt_cells.as_byte_count()..)?;
-        Some(Ok(I::map(specifier_collector.finish())))
+        let encoded_array = self.encoded_array.split_off(..self.interrupt_cells.as_byte_count())?;
+        Some(InterruptSpecifier { interrupt_cells: self.interrupt_cells, encoded_array })
     }
 }
 
@@ -246,7 +228,7 @@ impl<'a, P: ParserWithMode<'a>> ExtendedInterrupt<'a, P> {
     }
 }
 
-/// An individual interrupt specifier from an [`ExtendedInterrupt`] value.
+/// An individual interrupt specifier from an [`ExtendedInterrupt`] or [`LegacyInterrupts`] value.
 pub struct InterruptSpecifier<'a> {
     interrupt_cells: InterruptCells,
     encoded_array: &'a [u8],
@@ -268,16 +250,6 @@ impl<'a> InterruptSpecifier<'a> {
     /// Iterator over the raw [`u32`] components that comprise this interrupt specifier.
     pub fn iter(self) -> InterruptSpecifierIter<'a> {
         InterruptSpecifierIter { encoded_array: self.encoded_array }
-    }
-
-    /// Iterator over `(u32, u32)` interrupt specifier pairs, if
-    /// `#interrupt-cells` value is `2`.
-    pub fn iter_pairs(self) -> Option<InterruptSpecifierIterPairs<'a>> {
-        if self.interrupt_cells.0 != 2 {
-            return None;
-        }
-
-        Some(InterruptSpecifierIterPairs { encoded_array: self.encoded_array })
     }
 
     /// Extract the single component that comprises the interrupt specifier, if
@@ -330,30 +302,6 @@ impl<'a> Iterator for InterruptSpecifierIter<'a> {
         // This panic can never fail since the slice length is guaranteed to be
         // 4 bytes long
         Some(u32::from_be_bytes(next.try_into().unwrap()))
-    }
-}
-
-/// Iterator over pairs of `u32`s representing an interrupt specifier
-pub struct InterruptSpecifierIterPairs<'a> {
-    encoded_array: &'a [u8],
-}
-
-impl<'a> Iterator for InterruptSpecifierIterPairs<'a> {
-    type Item = (u32, u32);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.encoded_array.is_empty() {
-            return None;
-        }
-
-        let (next, rest) = self.encoded_array.split_at_checked(8)?;
-        self.encoded_array = rest;
-
-        let (first, second) = next.split_at(4);
-
-        // This panic can never fail since the slice length is guaranteed to be
-        // 4 bytes long
-        Some((u32::from_be_bytes(first.try_into().unwrap()), u32::from_be_bytes(second.try_into().unwrap())))
     }
 }
 

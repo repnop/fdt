@@ -437,7 +437,7 @@ fn interrupt_cells() {
         _ => unreachable!(),
     };
 
-    assert_eq!(interrupts.iter::<u32>().collect::<Result<std::vec::Vec<_>, _>>().unwrap(), &[0xA]);
+    assert_eq!(interrupts.iter().map(|interrupt| interrupt.single().unwrap()).collect::<std::vec::Vec<u32>>(), &[0xA]);
 }
 
 #[test]
