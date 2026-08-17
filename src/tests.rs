@@ -8,10 +8,8 @@ use crate::*;
 use nodes::{AsNode, NodeName};
 use properties::{
     cells::CellSizes,
-    interrupts::{
-        pci::{PciAddress, PciAddressHighBits},
-        InterruptCells, InterruptMap, Interrupts,
-    },
+    interrupts::{InterruptCells, InterruptMap, Interrupts},
+    pci::{PciAddress, PciAddressHighBits},
     ranges::Range,
     reg::{RawRegEntry, RegEntry},
     Compatible,
