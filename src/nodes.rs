@@ -355,7 +355,9 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
         }))
     }
 
-    /// Attempt to retrieve the parent for this node. Note that this
+    /// Attempt to retrieve the parent for this node. Note that this will
+    /// return `None` if this node is the root or is itself the return value of
+    /// `parent()` on another node.
     #[inline]
     pub fn parent(&self) -> Option<Self> {
         self.parent.map(|parent| Self {
