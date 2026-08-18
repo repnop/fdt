@@ -464,3 +464,30 @@ fn cpu_map() {
         b"rv64imafdcsu\0"
     );
 }
+
+#[cfg(feature = "pretty-printing")]
+#[test]
+fn node_pretty_print() {
+    let expected = r#"cpu@0 {
+    phandle = <0x01>;
+    device_type = "cpu";
+    reg = <0x00>;
+    status = "okay";
+    compatible = "riscv";
+    riscv,isa = "rv64imafdcsu";
+    mmu-type = "riscv,sv48";
+
+    interrupt-controller {
+        #interrupt-cells = <0x01>;
+        interrupt-controller;
+        compatible = "riscv,cpu-intc";
+        phandle = <0x02>;
+    };
+};
+"#;
+
+    let fdt = Fdt::new(TEST.as_slice()).unwrap();
+    let cpu = fdt.find_node_by_name("cpu").unwrap();
+
+    assert_eq!(std::string::ToString::to_string(&cpu), expected);
+}

@@ -393,6 +393,13 @@ impl<'a, P: ParserWithMode<'a>> Clone for Node<'a, P> {
 
 impl<'a, P: ParserWithMode<'a>> Copy for Node<'a, P> {}
 
+#[cfg(feature = "pretty-printing")]
+impl<'a, P: ParserWithMode<'a>> core::fmt::Display for Node<'a, P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        crate::pretty_print::print_node(f, &self.fallible(), 0).map_err(|_| core::fmt::Error)
+    }
+}
+
 /// Newtype around a slice of raw node data.
 #[repr(transparent)]
 pub struct RawNode<Granularity = u32>([Granularity]);

@@ -55,8 +55,9 @@ pub fn print_fdt<'a, P: Parser<'a>>(
         let mut any_props;
         let mut node_iter = root.all_nodes()?.peekable();
         let (mut n_braces, mut final_depth) = (0, 0);
+
         writeln!(f, "/ {{")?;
-        any_props = print_properties(f, root.node, 0)?;
+        any_props = print_properties(f, &root.node, 0)?;
         while let Some((depth, node)) = node_iter.next().transpose()? {
             let next_depth = match node_iter.peek().cloned().transpose()? {
                 Some((next_depth, _)) => next_depth,
@@ -86,7 +87,7 @@ pub fn print_fdt<'a, P: Parser<'a>>(
                 width = depth * 4,
             )?;
 
-            any_props = print_properties(f, node, depth)?;
+            any_props = print_properties(f, &node, depth)?;
 
             if !any_props && !next_is_child {
                 writeln!(f)?;
@@ -121,9 +122,38 @@ pub fn print_fdt<'a, P: Parser<'a>>(
     Ok(res?)
 }
 
+pub(crate) fn print_node<'a, P: Parser<'a>>(
+    f: &mut core::fmt::Formatter<'_>,
+    node: &Node<'a, (P, NoPanic)>,
+    depth: usize,
+) -> Result<(), Error> {
+    writeln!(
+        f,
+        "{:width$}{} {{",
+        if depth == 0 { "" } else { " " },
+        if node.name()?.name.is_empty() { NodeName { name: "/", unit_address: None } } else { node.name()? },
+        width = depth * 4
+    )?;
+
+    let children = node.children()?.iter();
+    let n_children = children.clone().count();
+
+    if print_properties(f, node, depth)? && n_children > 0 {
+        writeln!(f)?;
+    }
+
+    for child in children {
+        print_node(f, &child?, depth + 1)?;
+    }
+
+    writeln!(f, "{:width$}}};", if depth == 0 { "" } else { " " }, width = depth * 4)?;
+
+    Ok(())
+}
+
 fn print_properties<'a, P: Parser<'a>>(
     f: &mut core::fmt::Formatter<'_>,
-    node: Node<'a, (P, NoPanic)>,
+    node: &Node<'a, (P, NoPanic)>,
     depth: usize,
 ) -> Result<bool, Error> {
     let mut any_props = false;

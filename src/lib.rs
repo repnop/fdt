@@ -72,6 +72,7 @@ pub mod nodes;
 /// to be used by end users but need to be public. If you have a need to create
 /// a custom parser or other behavior, please open an issue.
 pub mod parsing;
+#[cfg(feature = "pretty-printing")]
 mod pretty_print;
 /// Devicetree property abstractions.
 pub mod properties;
@@ -160,6 +161,7 @@ impl core::fmt::Display for FdtError {
 /// Note on `Debug` impl: by default the `Debug` impl of this struct will not
 /// print any useful information, if you would like a best-effort tree print
 /// which looks similar to `dtc`'s output, enable the `pretty-printing` feature
+/// and use the `Display` impl.
 #[derive(Clone, Copy)]
 pub struct Fdt<'a, P: ParserWithMode<'a>> {
     structs: StructsBlock<'a, P::Granularity>,
@@ -173,6 +175,7 @@ impl<'a, P: ParserWithMode<'a>> core::fmt::Debug for Fdt<'a, P> {
     }
 }
 
+#[cfg(feature = "pretty-printing")]
 impl<'a, P: ParserWithMode<'a>> core::fmt::Display for Fdt<'a, P> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut parser: (P::Parser, NoPanic) = <_>::new(self.structs.0, self.strings, self.structs);
