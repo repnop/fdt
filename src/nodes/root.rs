@@ -470,11 +470,9 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIter<'a, P> {
 
         let starting_data = self.parser.data();
 
-        match self.parents.get_mut(self.parent_index) {
-            Some(idx) => *idx = starting_data,
-            // FIXME: what makes sense for this to return?
-            None => return None,
-        }
+        // FIXME: does early returning `None` make sense here? what other
+        // options are available?
+        *self.parents.get_mut(self.parent_index)? = starting_data;
 
         let node = Some(P::to_output(Ok((
             self.parent_index,
