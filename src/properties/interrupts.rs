@@ -132,8 +132,15 @@ pub struct ExtendedInterrupts<'a, P: ParserWithMode<'a> = (AlignedParser<'a>, Pa
 
 impl<'a, P: ParserWithMode<'a>> ExtendedInterrupts<'a, P> {
     #[allow(missing_docs)]
-    pub fn iter(self) -> ExtendedInterruptsIter<'a, P> {
+    pub fn iter(&self) -> ExtendedInterruptsIter<'a, P> {
         ExtendedInterruptsIter { root: self.root, encoded_array: self.encoded_array }
+    }
+}
+
+impl<'a, P: ParserWithMode<'a>> Copy for ExtendedInterrupts<'a, P> {}
+impl<'a, P: ParserWithMode<'a>> Clone for ExtendedInterrupts<'a, P> {
+    fn clone(&self) -> Self {
+        *self
     }
 }
 
@@ -245,7 +252,7 @@ impl<'a> InterruptSpecifier<'a> {
     }
 
     /// Iterator over the raw [`u32`] components that comprise this interrupt specifier.
-    pub fn iter(self) -> InterruptSpecifierIter<'a> {
+    pub fn iter(&self) -> InterruptSpecifierIter<'a> {
         InterruptSpecifierIter { encoded_array: self.encoded_array }
     }
 
@@ -515,7 +522,7 @@ impl<
     > InterruptMap<'a, CAddr, CInt, PAddr, PInt, P>
 {
     /// Create an iterator over each individual [`InterruptMapEntry`].
-    pub fn iter(self) -> InterruptMapIter<'a, CAddr, CInt, PAddr, PInt, P> {
+    pub fn iter(&self) -> InterruptMapIter<'a, CAddr, CInt, PAddr, PInt, P> {
         InterruptMapIter {
             address_cells: self.address_cells,
             interrupt_cells: self.interrupt_cells,

@@ -430,7 +430,7 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
 
     /// Create an iterator over the properties in the [`Node`].
     #[inline(always)]
-    pub fn iter(self) -> NodePropertiesIter<'a, P> {
+    pub fn iter(&self) -> NodePropertiesIter<'a, P> {
         NodePropertiesIter { properties: self.alt(), _mode: core::marker::PhantomData }
     }
 

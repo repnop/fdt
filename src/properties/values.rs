@@ -90,7 +90,7 @@ pub struct U32List<'a>(&'a [u8]);
 impl<'a> U32List<'a> {
     /// Returns an iterator over the individual [`u32`] components of the
     /// property value.
-    pub fn iter(self) -> U32ListIter<'a> {
+    pub fn iter(&self) -> U32ListIter<'a> {
         U32ListIter(self.0)
     }
 }

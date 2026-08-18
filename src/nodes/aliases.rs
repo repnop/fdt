@@ -61,7 +61,7 @@ impl<'a, P: ParserWithMode<'a>> Aliases<'a, P> {
     }
 
     /// Create an iterator over all of the available aliases
-    pub fn iter(self) -> P::Output<AllAliasesIter<'a, P>> {
+    pub fn iter(&self) -> P::Output<AllAliasesIter<'a, P>> {
         P::to_output(crate::tryblock!({ Ok(AllAliasesIter { properties: self.node.properties()?.iter() }) }))
     }
 }
