@@ -118,6 +118,10 @@ impl core::fmt::Display for NodeName<'_> {
     }
 }
 
+/// An opaque id for a node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NodeId(usize);
+
 /// A generic devicetree node.
 pub struct Node<'a, P: ParserWithMode<'a>> {
     pub(crate) this: &'a RawNode<<P as Parser<'a>>::Granularity>,
@@ -170,6 +174,18 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
                     NodeName { name: name.unwrap_or(s), unit_address }
                 }),
         )
+    }
+
+    /// An opaque id for this node that can be used as BTreeMap or HashMap key.
+    #[inline]
+    pub fn id(&self) -> NodeId {
+        // Compute the offset of the node from the strings block to avoid
+        // nondeterministic behavior depending on the exact location of the
+        // device tree in memory. Subtract node_addr from strings_addr as the
+        // strings block comes last in memory.
+        let node_addr = (self.this as *const RawNode<<P as Parser<'a>>::Granularity>).addr();
+        let strings_addr = self.strings.0.as_ptr().addr();
+        NodeId(strings_addr - node_addr)
     }
 
     /// [Devicetree 3.8.1 General Properties of `/cpus/cpu*`
