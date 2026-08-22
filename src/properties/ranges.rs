@@ -76,34 +76,22 @@ impl<'a, CAddr: CellCollector, PAddr: CellCollector, Len: CellCollector> Iterato
             .get(child_address_bytes + parent_address_bytes..child_address_bytes + parent_address_bytes + len_bytes)?;
 
         let mut child_address_collector = <CAddr as CellCollector>::Builder::default();
-        for encoded_address in child_encoded_address.chunks_exact(4) {
-            // TODO: replace this stuff with `array_chunks` when its stabilized
-            //
-            // These unwraps can't panic because `chunks_exact` guarantees that
-            // we'll always get slices of 4 bytes
-            if let Err(e) = child_address_collector.push(u32::from_be_bytes(encoded_address.try_into().unwrap())) {
+        for &encoded_address in child_encoded_address.as_chunks::<4>().0 {
+            if let Err(e) = child_address_collector.push(u32::from_be_bytes(encoded_address)) {
                 return Some(Err(e));
             }
         }
 
         let mut parent_address_collector = <PAddr as CellCollector>::Builder::default();
-        for encoded_address in parent_encoded_address.chunks_exact(4) {
-            // TODO: replace this stuff with `array_chunks` when its stabilized
-            //
-            // These unwraps can't panic because `chunks_exact` guarantees that
-            // we'll always get slices of 4 bytes
-            if let Err(e) = parent_address_collector.push(u32::from_be_bytes(encoded_address.try_into().unwrap())) {
+        for &encoded_address in parent_encoded_address.as_chunks::<4>().0 {
+            if let Err(e) = parent_address_collector.push(u32::from_be_bytes(encoded_address)) {
                 return Some(Err(e));
             }
         }
 
         let mut len_collector = <Len as CellCollector>::Builder::default();
-        for encoded_len in encoded_len.chunks_exact(4) {
-            // TODO: replace this stuff with `array_chunks` when its stabilized
-            //
-            // These unwraps can't panic because `chunks_exact` guarantees that
-            // we'll always get slices of 4 bytes
-            if let Err(e) = len_collector.push(u32::from_be_bytes(encoded_len.try_into().unwrap())) {
+        for &encoded_len in encoded_len.as_chunks::<4>().0 {
+            if let Err(e) = len_collector.push(u32::from_be_bytes(encoded_len)) {
                 return Some(Err(e));
             }
         }

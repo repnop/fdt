@@ -650,8 +650,8 @@ impl<'a, C: CellCollector> Iterator for CpuIdsIter<'a, C> {
 
         let mut collector = <C as CellCollector>::Builder::default();
 
-        for cell in this_cell.chunks_exact(4) {
-            if let Err(e) = collector.push(u32::from_be_bytes(cell.try_into().unwrap())) {
+        for &cell in this_cell.as_chunks::<4>().0 {
+            if let Err(e) = collector.push(u32::from_be_bytes(cell)) {
                 return Some(Err(e));
             }
         }

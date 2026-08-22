@@ -218,8 +218,8 @@ impl<'a, P: ParserWithMode<'a>> ReservedMemoryChild<'a, P> {
 
             let mut builder = <C as CellCollector>::Builder::default();
 
-            for component in size.value.chunks_exact(4) {
-                if builder.push(u32::from_be_bytes(component.try_into().unwrap())).is_err() {
+            for &component in size.value.as_chunks::<4>().0 {
+                if builder.push(u32::from_be_bytes(component)).is_err() {
                     return Ok(Some(Err(CollectCellsError)));
                 }
             }
@@ -251,8 +251,8 @@ impl<'a, P: ParserWithMode<'a>> ReservedMemoryChild<'a, P> {
 
             let mut builder = <C as CellCollector>::Builder::default();
 
-            for component in alignment.value.chunks_exact(4) {
-                if builder.push(u32::from_be_bytes(component.try_into().unwrap())).is_err() {
+            for &component in alignment.value.as_chunks::<4>().0 {
+                if builder.push(u32::from_be_bytes(component)).is_err() {
                     return Ok(Some(Err(CollectCellsError)));
                 }
             }

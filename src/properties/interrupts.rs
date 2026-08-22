@@ -241,10 +241,10 @@ impl<'a> InterruptSpecifier<'a> {
     /// Attempt to collect the specifier bytes into a specific type.
     pub fn collect_to<C: CellCollector>(self) -> Result<<C as CellCollector>::Output, CollectCellsError> {
         let mut collector = <C as CellCollector>::Builder::default();
-        for chunk in self.encoded_array.chunks_exact(4) {
+        for &chunk in self.encoded_array.as_chunks::<4>().0 {
             // UNWRAP: this unwrap cannot panic because `chunk` is guaranteed to
             // be 4 bytes.
-            collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            collector.push(u32::from_be_bytes(chunk))?;
         }
 
         Ok(C::map(collector.finish()))
@@ -421,18 +421,14 @@ impl<'a, AddrMask: CellCollector, IntMask: CellCollector, P: ParserWithMode<'a>>
 
                 let mut address_collector = AddrMask::Builder::default();
                 let mut specifier_collector = IntMask::Builder::default();
-                let mut cells = prop.value.chunks_exact(4);
+                let mut cells = prop.value.as_chunks::<4>().0.iter();
 
-                // TODO: replace this stuff with `array_chunks` when its stabilized
-                //
-                // These unwraps can't panic because `chunks_exact` guarantees that
-                // we'll always get slices of 4 bytes
-                for chunk in cells.by_ref().take(address_cells.0) {
-                    address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+                for &chunk in cells.by_ref().take(address_cells.0) {
+                    address_collector.push(u32::from_be_bytes(chunk))?;
                 }
 
-                for chunk in cells.take(interrupt_cells.0) {
-                    specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+                for &chunk in cells.take(interrupt_cells.0) {
+                    specifier_collector.push(u32::from_be_bytes(chunk))?;
                 }
 
                 Ok(Some(Self {
@@ -691,23 +687,23 @@ impl<
             self.encoded_map = rest;
 
             let mut child_address_collector = CAddr::Builder::default();
-            for chunk in child_address_iter.chunks_exact(4) {
-                child_address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            for &chunk in child_address_iter.as_chunks::<4>().0 {
+                child_address_collector.push(u32::from_be_bytes(chunk))?;
             }
 
             let mut child_specifier_collector = CInt::Builder::default();
-            for chunk in child_specifier_iter.chunks_exact(4) {
-                child_specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            for &chunk in child_specifier_iter.as_chunks::<4>().0 {
+                child_specifier_collector.push(u32::from_be_bytes(chunk))?;
             }
 
             let mut parent_address_collector = PAddr::Builder::default();
-            for chunk in parent_address_iter.chunks_exact(4) {
-                parent_address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            for &chunk in parent_address_iter.as_chunks::<4>().0 {
+                parent_address_collector.push(u32::from_be_bytes(chunk))?;
             }
 
             let mut parent_specifier_collector = PInt::Builder::default();
-            for chunk in parent_specifier_iter.chunks_exact(4) {
-                parent_specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            for &chunk in parent_specifier_iter.as_chunks::<4>().0 {
+                parent_specifier_collector.push(u32::from_be_bytes(chunk))?;
             }
 
             Ok(Some(InterruptMapEntry {
@@ -807,23 +803,23 @@ where
             self.encoded_map = rest;
 
             let mut child_address_collector = CAddr::Builder::default();
-            for chunk in child_address_iter.chunks_exact(4) {
-                child_address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            for &chunk in child_address_iter.as_chunks::<4>().0 {
+                child_address_collector.push(u32::from_be_bytes(chunk))?;
             }
 
             let mut child_specifier_collector = CInt::Builder::default();
-            for chunk in child_specifier_iter.chunks_exact(4) {
-                child_specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            for &chunk in child_specifier_iter.as_chunks::<4>().0 {
+                child_specifier_collector.push(u32::from_be_bytes(chunk))?;
             }
 
             let mut parent_address_collector = PAddr::Builder::default();
-            for chunk in parent_address_iter.chunks_exact(4) {
-                parent_address_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            for &chunk in parent_address_iter.as_chunks::<4>().0 {
+                parent_address_collector.push(u32::from_be_bytes(chunk))?;
             }
 
             let mut parent_specifier_collector = PInt::Builder::default();
-            for chunk in parent_specifier_iter.chunks_exact(4) {
-                parent_specifier_collector.push(u32::from_be_bytes(chunk.try_into().unwrap()))?;
+            for &chunk in parent_specifier_iter.as_chunks::<4>().0 {
+                parent_specifier_collector.push(u32::from_be_bytes(chunk))?;
             }
 
             let child_unit_address = CAddr::map(child_address_collector.finish());

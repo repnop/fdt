@@ -82,23 +82,15 @@ impl<'a, CAddr: CellCollector, Len: CellCollector> Iterator for RegIter<'a, CAdd
         let encoded_len = self.encoded_array.get(address_bytes..address_bytes + size_bytes)?;
 
         let mut address_collector = <CAddr as CellCollector>::Builder::default();
-        for encoded_address in encoded_address.chunks_exact(4) {
-            // TODO: replace this stuff with `array_chunks` when its stabilized
-            //
-            // These unwraps can't panic because `chunks_exact` guarantees that
-            // we'll always get slices of 4 bytes
-            if let Err(e) = address_collector.push(u32::from_be_bytes(encoded_address.try_into().unwrap())) {
+        for &encoded_address in encoded_address.as_chunks::<4>().0 {
+            if let Err(e) = address_collector.push(u32::from_be_bytes(encoded_address)) {
                 return Some(Err(e));
             }
         }
 
         let mut len_collector = <Len as CellCollector>::Builder::default();
-        for encoded_len in encoded_len.chunks_exact(4) {
-            // TODO: replace this stuff with `array_chunks` when its stabilized
-            //
-            // These unwraps can't panic because `chunks_exact` guarantees that
-            // we'll always get slices of 4 bytes
-            if let Err(e) = len_collector.push(u32::from_be_bytes(encoded_len.try_into().unwrap())) {
+        for &encoded_len in encoded_len.as_chunks::<4>().0 {
+            if let Err(e) = len_collector.push(u32::from_be_bytes(encoded_len)) {
                 return Some(Err(e));
             }
         }
