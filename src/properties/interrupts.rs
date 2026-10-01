@@ -29,6 +29,13 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for Interrupts<'a, P> {
     }
 }
 
+impl<'a, P: ParserWithMode<'a>> Copy for Interrupts<'a, P> {}
+impl<'a, P: ParserWithMode<'a>> Clone for Interrupts<'a, P> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
 /// [Devicetree 2.4.1.1.
 /// `interrupts`](https://devicetree-specification.readthedocs.io/en/latest/chapter2-devicetree-basics.html#interrupts)
 ///
@@ -232,7 +239,15 @@ impl<'a, P: ParserWithMode<'a>> ExtendedInterrupt<'a, P> {
     }
 }
 
+impl<'a, P: ParserWithMode<'a>> Copy for ExtendedInterrupt<'a, P> {}
+impl<'a, P: ParserWithMode<'a>> Clone for ExtendedInterrupt<'a, P> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
 /// An individual interrupt specifier from an [`ExtendedInterrupt`] or [`LegacyInterrupts`] value.
+#[derive(Clone, Copy)]
 pub struct InterruptSpecifier<'a> {
     encoded_array: &'a [u8],
 }
@@ -251,7 +266,7 @@ impl<'a> InterruptSpecifier<'a> {
     }
 
     /// Iterator over the raw [`u32`] components that comprise this interrupt specifier.
-    pub fn iter(&self) -> InterruptSpecifierIter<'a> {
+    pub fn iter(self) -> InterruptSpecifierIter<'a> {
         InterruptSpecifierIter { encoded_array: self.encoded_array }
     }
 
@@ -619,6 +634,30 @@ impl<
             encoded_map: encoded_map.value,
             _collectors: core::marker::PhantomData,
         }))
+    }
+}
+
+impl<
+        'a,
+        P: ParserWithMode<'a>,
+        CAddr: CellCollector,
+        CInt: CellCollector,
+        PAddr: CellCollector,
+        PInt: CellCollector,
+    > Copy for InterruptMap<'a, CAddr, CInt, PAddr, PInt, P>
+{
+}
+impl<
+        'a,
+        P: ParserWithMode<'a>,
+        CAddr: CellCollector,
+        CInt: CellCollector,
+        PAddr: CellCollector,
+        PInt: CellCollector,
+    > Clone for InterruptMap<'a, CAddr, CInt, PAddr, PInt, P>
+{
+    fn clone(&self) -> Self {
+        *self
     }
 }
 
