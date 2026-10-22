@@ -65,7 +65,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for CellSizes {
         for property in node.properties()? {
             let property = property?;
 
-            let mut parser = UnalignedParser::new(property.value, StringsBlock(&[]), StructsBlock(&[]));
+            let mut parser = UnalignedParser::new(property.value, StringsBlock(&[]), StructsBlock(&[], 0));
             match property.name {
                 "#address-cells" => address_cells = Some(parser.advance_u32()?.to_ne() as usize),
                 "#size-cells" => size_cells = Some(parser.advance_u32()?.to_ne() as usize),

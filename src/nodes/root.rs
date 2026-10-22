@@ -477,6 +477,7 @@ impl<'a, P: ParserWithMode<'a>> Iterator for AllNodesIter<'a, P> {
         let node = Some(P::to_output(Ok((
             self.parent_index,
             Node {
+                offset: self.parser.structs().image_offset_of(starting_data) - BigEndianToken::SIZE,
                 this: RawNode::new(starting_data),
                 parent: self.parents.get(self.parent_index.saturating_sub(1)).map(|parent| RawNode::new(parent)),
                 strings: self.parser.strings(),

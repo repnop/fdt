@@ -124,6 +124,7 @@ pub struct NodeId(usize);
 
 /// A generic devicetree node.
 pub struct Node<'a, P: ParserWithMode<'a>> {
+    pub(crate) offset: usize,
     pub(crate) this: &'a RawNode<<P as Parser<'a>>::Granularity>,
     pub(crate) parent: Option<&'a RawNode<<P as Parser<'a>>::Granularity>>,
     pub(crate) strings: StringsBlock<'a>,
@@ -142,6 +143,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
     #[inline(always)]
     pub fn alt<P2: ParserWithMode<'a, Granularity = P::Granularity>>(self) -> Node<'a, P2> {
         Node {
+            offset: self.offset,
             this: self.this,
             parent: self.parent,
             strings: self.strings,
@@ -174,6 +176,13 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
                     NodeName { name: name.unwrap_or(s), unit_address }
                 }),
         )
+    }
+
+    /// Byte offset of this node's `FDT_BEGIN_NODE` token from the start of the
+    /// devicetree image.
+    #[inline]
+    pub fn offset(&self) -> usize {
+        self.offset
     }
 
     /// An opaque id for this node that can be used as BTreeMap or HashMap key.
@@ -377,6 +386,7 @@ impl<'a, P: ParserWithMode<'a>> Node<'a, P> {
     #[inline]
     pub fn parent(&self) -> Option<Self> {
         self.parent.map(|parent| Self {
+            offset: self.structs.image_offset_of(&parent.0) - BigEndianToken::SIZE,
             this: parent,
             parent: None,
             strings: self.strings,
@@ -471,12 +481,14 @@ impl<'a, P: ParserWithMode<'a>> NodeProperties<'a, P> {
             Err(e) => return P::to_output(Err(e)),
         }
 
+        let offset = self.structs.image_offset_of(parser.data());
+
         P::to_output(tryblock!({
             match parser.parse_raw_property() {
                 Ok((name_offset, data)) => {
                     self.data = parser.data();
 
-                    Ok(Some(NodeProperty::new(self.strings.offset_at(name_offset)?, data)))
+                    Ok(Some(NodeProperty::new(self.strings.offset_at(name_offset)?, data, offset)))
                 }
                 Err(FdtError::ParseError(ParseError::UnexpectedEndOfData)) => Ok(None),
                 Err(e) => return Err(e),
@@ -553,13 +565,17 @@ pub struct NodeProperty<'a> {
     pub name: &'a str,
     /// Raw property value.
     pub value: &'a [u8],
+    /// Byte offset of this property's `FDT_PROP` token from the start of the
+    /// devicetree image.
+    pub offset: usize,
 }
 
 impl<'a> NodeProperty<'a> {
-    /// Create a new [`NodeProperty`] from its name and raw value.
+    /// Create a new [`NodeProperty`] from its name, raw value and offset in the
+    /// devicetree image.
     #[inline(always)]
-    pub fn new(name: &'a str, value: &'a [u8]) -> Self {
-        Self { name, value }
+    pub fn new(name: &'a str, value: &'a [u8], offset: usize) -> Self {
+        Self { name, value, offset }
     }
 
     /// Attempt to convert this property's value to the specified

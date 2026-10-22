@@ -102,6 +102,60 @@ fn all_nodes() {
 }
 
 #[test]
+fn node_offsets() {
+    // Offsets of each node's FDT_BEGIN_NODE token as reported by `fdtdump -d`
+    let expected = [
+        0x9c, 0x104, 0x14c, 0x188, 0x220, 0x28c, 0x298, 0x2a8, 0x2d4, 0x2ec, 0x338, 0x3a4, 0x414, 0x490, 0x4f0, 0x54c,
+        0x5bc, 0x870, 0x8e4, 0x958, 0x9cc, 0xa40, 0xab4, 0xb28, 0xb9c, 0xc10, 0xcc4,
+    ];
+
+    fn check<'a, P: Parser<'a>>(fdt: Fdt<'a, (P, Panic)>, expected: &[usize]) {
+        let root = fdt.root();
+        assert_eq!(root.as_node().offset(), 0x38);
+
+        let all_nodes = root.all_nodes().map(|(_, n)| n.offset()).collect::<std::vec::Vec<_>>();
+        assert_eq!(all_nodes, expected);
+
+        let soc_children = root.find_node("/soc").unwrap().children().iter().map(|n| n.offset());
+        assert_eq!(soc_children.collect::<std::vec::Vec<_>>(), &expected[10..]);
+
+        let core0 = root.find_node("/cpus/cpu-map/cluster0").unwrap().children().iter().next().unwrap();
+        assert_eq!(core0.offset(), 0x2a8);
+        assert_eq!(core0.parent().unwrap().offset(), 0x298);
+    }
+
+    check(Fdt::new(TEST.as_slice()).unwrap(), &expected);
+    check(Fdt::new_unaligned(&TEST.0).unwrap(), &expected);
+}
+
+#[test]
+fn property_offsets() {
+    // Offsets of each property's FDT_PROP token as reported by `fdtdump -d`
+    fn check<'a, P: Parser<'a>>(fdt: Fdt<'a, (P, Panic)>) {
+        let root = fdt.root().as_node();
+        let root_props = root.properties().iter().map(|p| (p.name, p.offset)).collect::<std::vec::Vec<_>>();
+        assert_eq!(
+            root_props,
+            [("#address-cells", 0x40), ("#size-cells", 0x50), ("compatible", 0x60), ("model", 0x7c)]
+        );
+
+        let intc = fdt.root().find_node("/cpus/cpu@0/interrupt-controller").unwrap();
+        let intc_props = intc.properties().iter().map(|p| (p.name, p.offset)).collect::<std::vec::Vec<_>>();
+        assert_eq!(
+            intc_props,
+            [("#interrupt-cells", 0x23c), ("interrupt-controller", 0x24c), ("compatible", 0x258), ("phandle", 0x274)]
+        );
+        assert_eq!(intc.raw_property("compatible").unwrap().offset, 0x258);
+
+        let empty = fdt.root().find_node("/emptyproptest").unwrap();
+        assert_eq!(empty.properties().iter().count(), 0);
+    }
+
+    check(Fdt::new(TEST.as_slice()).unwrap());
+    check(Fdt::new_unaligned(&TEST.0).unwrap());
+}
+
+#[test]
 fn finds_root_node() {
     let fdt = Fdt::new(TEST.as_slice()).unwrap();
     assert!(fdt.root().find_node("/").is_some(), "couldn't find root node");

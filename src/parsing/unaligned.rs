@@ -99,7 +99,7 @@ mod tests {
         let mut parser = UnalignedParser::new(
             unsafe { core::slice::from_raw_parts(&n as *const BigEndianU32 as *const u8, 4) },
             StringsBlock(&[]),
-            StructsBlock(&[]),
+            StructsBlock(&[], 0),
         );
         let m = parser.advance_u32().unwrap();
 

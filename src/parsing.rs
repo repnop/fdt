@@ -56,6 +56,9 @@ impl BigEndianToken {
     pub const PROP: Self = Self(BigEndianU32::from_ne(3));
     pub const NOP: Self = Self(BigEndianU32::from_ne(4));
     pub const END: Self = Self(BigEndianU32::from_ne(9));
+
+    /// Size of a token in bytes.
+    pub(crate) const SIZE: usize = core::mem::size_of::<Self>();
 }
 
 pub(crate) struct Stream<'a, T: Copy>(&'a [T]);
@@ -358,6 +361,7 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
         };
 
         Ok(Node {
+            offset: self.structs().image_offset_of(starting_data) - BigEndianToken::SIZE,
             this: RawNode::new(&starting_data[..starting_data.len() - granularity_offset]),
             parent: None,
             strings: self.strings(),
@@ -415,6 +419,7 @@ pub trait Parser<'a>: crate::sealed::Sealed + Clone {
 
         match self.advance_token()? {
             BigEndianToken::END_NODE => Ok(Node {
+                offset: self.structs().image_offset_of(starting_data) - BigEndianToken::SIZE,
                 this: RawNode::new(
                     starting_data.get(..starting_len - ending_len).ok_or(ParseError::UnexpectedEndOfData)?,
                 ),
@@ -464,8 +469,27 @@ impl<'a> StringsBlock<'a> {
     }
 }
 
-/// Newtype wrapper around a byte buffer representing the structs block of the
-/// flattened devicetree.
+/// Wrapper around a byte buffer representing the structs block of the
+/// flattened devicetree, along with the block's byte offset from the start of
+/// the devicetree image.
 #[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct StructsBlock<'a, G>(pub(crate) &'a [G]);
+pub struct StructsBlock<'a, G>(pub(crate) &'a [G], pub(crate) usize);
+
+impl<'a, G> StructsBlock<'a, G> {
+    /// Byte offset from the start of the devicetree image of the first element
+    /// of `data`, which must be a subslice of this structs block.
+    /// 
+    /// +-+-structs_off-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	/// |        |            structs_buffer            |
+	/// +-structs_buffer_addr-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    ///          |                                      |
+    /// +-+-+-+-+-+-data_offset-+-+-+-+-+-+-+-+-+-+-+-+-+
+    ///          |        |------data-------|           |
+    /// +-+-+-+-+-+-+-data_addr-+-+-+-+-+-+-+-+-+-+-+-+-+
+    /// 
+    /// data_offset = (data_address - structs_buffer_address) + structs_off
+    ///          
+    pub(crate) fn image_offset_of(&self, data: &[G]) -> usize {
+        self.1 + (data.as_ptr().addr() - self.0.as_ptr().addr())
+    }
+}

@@ -224,7 +224,7 @@ impl FdtHeader {
 impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
     /// Construct a new `Fdt` from a byte buffer
     pub fn new_unaligned(data: &'a [u8]) -> Result<Self, FdtError> {
-        let mut parser = UnalignedParser::new(data, StringsBlock(&[]), StructsBlock(&[]));
+        let mut parser = UnalignedParser::new(data, StringsBlock(&[]), StructsBlock(&[], 0));
         let header = parser.parse_header()?;
 
         let strings_end = (header.strings_offset + header.strings_size) as usize;
@@ -234,7 +234,10 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
         }
 
         let strings = StringsBlock(&data[header.strings_offset as usize..][..header.strings_size as usize]);
-        let structs = StructsBlock(&data[header.structs_offset as usize..][..header.structs_size as usize]);
+        let structs = StructsBlock(
+            &data[header.structs_offset as usize..][..header.structs_size as usize],
+            header.structs_offset as usize,
+        );
 
         if !header.valid_magic() {
             return Err(FdtError::BadMagic);
@@ -255,7 +258,7 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
 
         let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
         let real_size = usize::try_from(
-            UnalignedParser::new(tmp_header, StringsBlock(&[]), StructsBlock(&[])).parse_header()?.total_size,
+            UnalignedParser::new(tmp_header, StringsBlock(&[]), StructsBlock(&[], 0)).parse_header()?.total_size,
         )
         .map_err(|_| ParseError::NumericConversionError)?;
 
@@ -266,7 +269,7 @@ impl<'a> Fdt<'a, (UnalignedParser<'a>, Panic)> {
 impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
     /// Construct a new `Fdt` from a `u32`-aligned buffer
     pub fn new(data: &'a [u32]) -> Result<Self, FdtError> {
-        let mut parser = AlignedParser::new(data, StringsBlock(&[]), StructsBlock(&[]));
+        let mut parser = AlignedParser::new(data, StringsBlock(&[]), StructsBlock(&[], 0));
         let header = parser.parse_header()?;
 
         let strings_end = (header.strings_offset + header.strings_size) as usize / 4;
@@ -287,6 +290,7 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
         let structs_end = structs_start + (header.structs_size as usize / 4);
         let structs = StructsBlock(
             data.get(structs_start..structs_end).ok_or(FdtError::ParseError(ParseError::UnexpectedEndOfData))?,
+            header.structs_offset as usize,
         );
 
         if !header.valid_magic() {
@@ -308,7 +312,7 @@ impl<'a> Fdt<'a, (AlignedParser<'a>, Panic)> {
 
         let tmp_header = core::slice::from_raw_parts(ptr, core::mem::size_of::<FdtHeader>());
         let real_size = usize::try_from(
-            AlignedParser::new(tmp_header, StringsBlock(&[]), StructsBlock(&[])).parse_header()?.total_size,
+            AlignedParser::new(tmp_header, StringsBlock(&[]), StructsBlock(&[], 0)).parse_header()?.total_size,
         )
         .map_err(|_| ParseError::NumericConversionError)?;
 
