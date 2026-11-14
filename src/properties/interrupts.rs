@@ -75,7 +75,7 @@ impl<'a, P: ParserWithMode<'a>> Property<'a, P> for LegacyInterrupts<'a, P> {
                 };
 
                 let Some(interrupt_cells) = interrupt_parent.property::<InterruptCells>()? else {
-                    return Err(FdtError::MissingRequiredProperty("interrupt-cells"));
+                    return Err(FdtError::MissingRequiredProperty("#interrupt-cells"));
                 };
 
                 if interrupts.value.len() % (interrupt_cells.as_byte_count()) != 0 {
@@ -257,8 +257,6 @@ impl<'a> InterruptSpecifier<'a> {
     pub fn collect_to<C: CellCollector>(self) -> Result<<C as CellCollector>::Output, CollectCellsError> {
         let mut collector = <C as CellCollector>::Builder::default();
         for chunk in self.encoded_array.as_chunks().0 {
-            // UNWRAP: this unwrap cannot panic because `chunk` is guaranteed to
-            // be 4 bytes.
             collector.push(u32::from_be_bytes(*chunk))?;
         }
 
@@ -355,12 +353,36 @@ impl<'a, P: ParserWithMode<'a>> core::ops::DerefMut for InterruptParent<'a, P> {
 
 impl<'a, P: ParserWithMode<'a>> Property<'a, P> for InterruptParent<'a, P> {
     fn parse(node: FallibleNode<'a, P>, root: FallibleRoot<'a, P>) -> Result<Option<Self>, FdtError> {
-        match node.properties()?.find("interrupt-parent")? {
-            Some(phandle) => match root.resolve_phandle(PHandle(phandle.as_value()?))? {
+        if let Some(phandle) = node.properties()?.find("interrupt-parent")? {
+            match root.resolve_phandle(phandle.as_value()?)? {
+                Some(parent) => return Ok(Some(Self(parent.alt()))),
+                None => return Err(FdtError::MissingPHandleNode(phandle.as_value()?)),
+            };
+        }
+
+        let Some(n) = node.parent() else {
+            return Ok(None);
+        };
+
+        // Devicetree 2.4.1.2. `interrupt-parent`
+        // (https://devicetree-specification.readthedocs.io/en/latest/chapter2-devicetree-basics.html#interrupt-parent)
+        // says that if the `interrupt-parent` property is missing the parent node is should be used
+        // as the interrupt parent. Linux however will keep walking up the tree until it finds a
+        // node with `#interrupt-cells` and the device tree for the QEMU aarch64 virt machine
+        // depends on this behavior as it omits the interrupt-parent for most devices and specifies
+        // on the root node instead. Instead of walking up the entire tree, the code below only
+        // walks up a single node as `Node::parent()` only allows walking up a single node.
+
+        if n.property::<InterruptCells>()?.is_some() {
+            return Ok(Some(Self(n.alt())));
+        }
+
+        match n.properties()?.find("interrupt-parent")? {
+            Some(phandle) => match root.resolve_phandle(phandle.as_value()?)? {
                 Some(parent) => Ok(Some(Self(parent.alt()))),
-                None => Err(FdtError::MissingPHandleNode(phandle.as_value()?)),
+                None => Ok(None),
             },
-            None => Ok(node.parent().map(|n| Self(n.alt()))),
+            None => Ok(None),
         }
     }
 }
@@ -438,10 +460,6 @@ impl<'a, AddrMask: CellCollector, IntMask: CellCollector, P: ParserWithMode<'a>>
                 let mut specifier_collector = IntMask::Builder::default();
                 let mut cells = prop.value.as_chunks().0.iter();
 
-                // TODO: replace this stuff with `array_chunks` when its stabilized
-                //
-                // These unwraps can't panic because `chunks_exact` guarantees that
-                // we'll always get slices of 4 bytes
                 for chunk in cells.by_ref().take(address_cells.0) {
                     address_collector.push(u32::from_be_bytes(*chunk))?;
                 }
